@@ -3,4 +3,5 @@ uvicorn
 google-auth
 google-auth-oauthlib
 apscheduler
+google-api-python-client
 
