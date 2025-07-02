@@ -52,7 +52,8 @@ from fastapi.responses import RedirectResponse
 
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 CLIENT_SECRET_FILE = "client_secret.json"  # Must exist in your root dir
-REDIRECT_URI = "http://localhost:8000/oauth2callback"  # Or your domain if hosted
+REDIRECT_URI = "https://ai-email-backend-1-m0vj.onrender.com/oauth2callback"
+
 
 class TokenPayload(BaseModel):
     email: str
