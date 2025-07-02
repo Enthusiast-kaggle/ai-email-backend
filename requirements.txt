@@ -9,7 +9,7 @@ google-api-python-client
 oauth2client
 gspread
 apscheduler
-openai
+openai==0.28
 email-validator
 tzlocal
 python-multipart
