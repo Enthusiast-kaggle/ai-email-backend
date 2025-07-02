@@ -115,7 +115,8 @@ def oauth2callback(request: Request):
         "expiry": expiry
     })
 
-    return RedirectResponse(url=f"https://your-frontend-url.com?success=true&email={email}")
+    return RedirectResponse(url=f"https://ai-email-frontend.vercel.app?success=true&email={email}")
+
 
 
 
