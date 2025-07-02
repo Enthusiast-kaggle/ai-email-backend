@@ -12,3 +12,4 @@ apscheduler
 openai
 email-validator
 tzlocal
+python-multipart
