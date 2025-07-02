@@ -2,6 +2,11 @@ fastapi
 uvicorn
 google-auth
 google-auth-oauthlib
-apscheduler
 google-api-python-client
-
+gspread
+oauthlib
+requests
+requests-oauthlib
+apscheduler
+pydantic
+tzlocal
