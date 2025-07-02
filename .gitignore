@@ -1,0 +1,15 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environment
+.venv/
+
+# Environment and secrets
+.env
+*.db
+*.json
+!warmup_config.example.json
+
+# Node stuff (if any used)
+node_modules/
