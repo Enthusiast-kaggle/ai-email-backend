@@ -502,12 +502,29 @@ def init_scheduled_db():
 
 
 def check_and_send_scheduled_emails():
+    print("🚀 check_and_send_scheduled_emails started")
+
     while True:
-        conn = sqlite3.connect(SCHEDULED_DB)
+        conn = sqlite3.connect(SCHEDULED_DB, check_same_thread=False)
         cursor = conn.cursor()
+        
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"\n🕒 Scheduler running at: {current_time}")
+
+        # Log all scheduled emails in the DB
+        cursor.execute('SELECT * FROM scheduled_emails')
+        rows = cursor.fetchall()
+        if rows:
+            print("📋 Scheduled emails in DB:")
+            for row in rows:
+                print(f"📝 ID: {row[0]}, Sender: {row[1]}, Recipient: {row[2]}, Time: {row[5]}")
+        else:
+            print("📭 No emails scheduled in DB.")
+
+        # Get emails due for sending
         cursor.execute('SELECT id, sender, recipient, subject, body FROM scheduled_emails WHERE schedule_time <= ?', (current_time,))
         emails = cursor.fetchall()
+
         for email in emails:
             email_id, sender, recipient, subject, body = email
             try:
@@ -516,10 +533,15 @@ def check_and_send_scheduled_emails():
                 print(f"✅ Scheduled email sent from {sender} to {recipient}")
             except Exception as e:
                 print(f"❌ Failed to send scheduled email from {sender} to {recipient}: {e}")
+
+            # Remove sent email from DB
             cursor.execute('DELETE FROM scheduled_emails WHERE id = ?', (email_id,))
             conn.commit()
+
         conn.close()
+        print(f"🔁 Scheduler loop complete. Sleeping for 60 seconds...\n")
         time.sleep(60)
+
 
 @app.on_event("startup")
 def start_scheduled_email_worker():
@@ -567,7 +589,12 @@ async def api_email_action(email_data: EmailRequest, background_tasks: Backgroun
             return {"status": "Error", "message": "Recipient(s), schedule time, and body required"}
 
         for recipient in recipients:
-            store_scheduled_email(email_data.sender_email, recipient, email_data.subject or "Scheduled Email", email_data.body, email_data.schedule_time)
+            try:
+               formatted_time = datetime.strptime(email_data.schedule_time, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
+            except ValueError:
+              return {"status": "Error", "message": "Invalid schedule_time format. Use YYYY-MM-DD HH:MM:SS"}
+
+            store_scheduled_email(email_data.sender_email, recipient, email_data.subject or "Scheduled Email", email_data.body, formatted_time)
 
 
         return {"status": "Scheduled", "message": f"📅 Scheduled for {len(recipients)} recipient(s)"}
