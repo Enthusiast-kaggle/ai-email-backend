@@ -45,18 +45,18 @@ import sqlite3
 import io
 app = FastAPI()
 
-def email_to_filename(email: str) -> str:
-    return email.replace("@", "_at_")
+def email_to_env_key(email: str) -> str:
+    return f"CLIENT_SECRET_{email.replace('@', '_at_').replace('.', '_')}"
 
-def get_client_secret_file(email):
-    """
-    Returns the path to the client secret file for the given email.
-    It expects files to be named like client_secret_name_at_gmail.com.json
-    """
-    safe_email = email_to_filename(email)
-    client_secret_file = os.path.join("secrets", f"client_secret_{safe_email}.json")
-    print(f"🔍 Looking for file at: {client_secret_file}")  # 👈 ADD THIS
-    return client_secret_file
+def get_client_secret_json(email: str):
+    env_key = email_to_env_key(email)
+    client_secret_str = os.getenv(env_key)
+
+    if not client_secret_str:
+        raise FileNotFoundError(f"No client secret found in environment for {email}")
+
+    return json.loads(client_secret_str)
+
 
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -105,18 +105,19 @@ class TokenPayload(BaseModel):
     email: str
     token_data: dict
 
+from google_auth_oauthlib.flow import Flow
+
 @app.get("/get-auth-url")
 def get_auth_url(email: str):
     print(f"📥 Received request for auth URL for {email}")
-    client_secret_file = get_client_secret_file(email)
-    print("📁 Existing files in 'secrets' folder:", os.listdir("secrets"))
 
-    if not os.path.exists(client_secret_file):
-        print("❌ Client secret file missing")
-        return {"error": f"Client secret file not found for {email}"}
+    try:
+        secret_json = get_client_secret_json(email)
+    except Exception as e:
+        return {"error": str(e)}
 
-    flow = Flow.from_client_secrets_file(
-        client_secret_file,
+    flow = Flow.from_client_config(
+        secret_json,
         scopes=GOOGLE_SCOPES,
         redirect_uri=REDIRECT_URI,
     )
@@ -127,7 +128,6 @@ def get_auth_url(email: str):
         state=email
     )
 
-    print(f"✅ Generated auth URL for {email}")
     return {"auth_url": auth_url}
 
 
