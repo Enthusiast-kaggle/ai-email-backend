@@ -1,4 +1,5 @@
 from google.auth.transport.requests import Request as GoogleRequest
+import pytz
 
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -464,7 +465,12 @@ def generate_email_with_ai(prompt: str, tone: str) -> str:
     except Exception as e:
         return f"❌ AI Error: {str(e)}"
 
-def store_scheduled_email(sender_email, recipient, subject, body, schedule_time):
+def store_scheduled_email(sender_email, recipient, subject, body, schedule_time, timezone_str):
+    # Convert local time to UTC
+    local_tz = pytz.timezone(timezone_str)
+    local_dt = local_tz.localize(datetime.strptime(schedule_time, "%Y-%m-%d %H:%M:%S"))
+    utc_dt = local_dt.astimezone(pytz.utc)
+
     conn = sqlite3.connect(SCHEDULED_DB)
     cursor = conn.cursor()
     cursor.execute('''
@@ -480,9 +486,10 @@ def store_scheduled_email(sender_email, recipient, subject, body, schedule_time)
     cursor.execute('''
         INSERT INTO scheduled_emails (sender, recipient, subject, body, schedule_time)
         VALUES (?, ?, ?, ?, ?)
-    ''', (sender_email, recipient, subject, body, schedule_time))
+    ''', (sender_email, recipient, subject, body, utc_dt.strftime("%Y-%m-%d %H:%M:%S")))
     conn.commit()
     conn.close()
+
     
 def init_scheduled_db():
     conn = sqlite3.connect(SCHEDULED_DB)
@@ -581,23 +588,27 @@ async def api_email_action(email_data: EmailRequest, background_tasks: Backgroun
             return {"status": "Error", "message": str(e)}
 
     elif email_data.action == "schedule":
-        if not email_data.sender_email:
-            return {"status": "Error", "message": "sender_email is required"}
+    if not email_data.sender_email:
+        return {"status": "Error", "message": "sender_email is required"}
 
-        recipients = email_data.recipients or ([email_data.recipient] if email_data.recipient else [])
-        if not recipients or not email_data.schedule_time or not email_data.body:
-            return {"status": "Error", "message": "Recipient(s), schedule time, and body required"}
+    if not email_data.timezone:
+        return {"status": "Error", "message": "Timezone is required for scheduling"}
 
-        for recipient in recipients:
-            try:
-               formatted_time = datetime.strptime(email_data.schedule_time, "%Y-%m-%d %H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")
-            except ValueError:
-              return {"status": "Error", "message": "Invalid schedule_time format. Use YYYY-MM-DD HH:MM:SS"}
+    recipients = email_data.recipients or ([email_data.recipient] if email_data.recipient else [])
+    if not recipients or not email_data.schedule_time or not email_data.body:
+        return {"status": "Error", "message": "Recipient(s), schedule time, and body required"}
 
-            store_scheduled_email(email_data.sender_email, recipient, email_data.subject or "Scheduled Email", email_data.body, formatted_time)
+    for recipient in recipients:
+        store_scheduled_email(
+            email_data.sender_email,
+            recipient,
+            email_data.subject or "Scheduled Email",
+            email_data.body,
+            email_data.schedule_time,
+            email_data.timezone  # <- new timezone field
+        )
 
-
-        return {"status": "Scheduled", "message": f"📅 Scheduled for {len(recipients)} recipient(s)"}
+    return {"status": "Scheduled", "message": f"📅 Scheduled for {len(recipients)} recipient(s)"}
 
     elif email_data.action == "extract":
         if not email_data.body:
