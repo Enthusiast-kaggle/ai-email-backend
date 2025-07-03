@@ -162,7 +162,7 @@ def oauth2callback(request: Request):
     if not code or not email_hint:
         return {"error": "Missing code or email (state) in callback URL"}
 
-    client_secret_file = get_client_secret_file(email_hint)
+    client_secret_file = get_client_secret_from_file(email_hint)
 
     flow = Flow.from_client_secrets_file(
         client_secret_file,
