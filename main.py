@@ -45,6 +45,15 @@ import sqlite3
 import io
 app = FastAPI()
 
+def get_client_secret_file(email):
+    """
+    Returns the path to the client secret file for the given email.
+    It expects files to be named like client_secret_email@gmail.com.json
+    """
+    safe_email = email.replace("@", "_at_")  # Optional safety
+    filename = f"client_secret_{safe_email}.json"
+    return filename
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Setup: SQLite DB for token storage
 TOKEN_DB = os.path.join(BASE_DIR, "token_store.db")
@@ -92,14 +101,27 @@ class TokenPayload(BaseModel):
     token_data: dict
 
 @app.get("/get-auth-url")
-def get_auth_url():
+def get_auth_url(email: str):
+    client_secret_file = get_client_secret_file(email)
+
+    if not os.path.exists(client_secret_file):
+        return {"error": f"Client secret file not found for {email}"}
+
     flow = Flow.from_client_secrets_file(
-        CLIENT_SECRET_FILE,
+        client_secret_file,
         scopes=GOOGLE_SCOPES,
         redirect_uri=REDIRECT_URI,
     )
-    auth_url, _ = flow.authorization_url(access_type='offline', prompt='consent')
+
+    # 🔥 INCLUDE THE EMAIL AS `state` so it's passed back in the callback
+    auth_url, _ = flow.authorization_url(
+        access_type='offline',
+        prompt='consent',
+        state=email
+    )
+
     return {"auth_url": auth_url}
+
 
 def get_user_email(credentials):
     """
@@ -116,20 +138,22 @@ def get_user_email(credentials):
 @app.get("/oauth2callback")
 def oauth2callback(request: Request):
     code = request.query_params.get("code")
-    if not code:
-        return {"error": "Missing code in callback URL"}
+    email_hint = request.query_params.get("state")  # We'll pass email as state during auth
+
+    if not code or not email_hint:
+        return {"error": "Missing code or email (state) in callback URL"}
+
+    client_secret_file = get_client_secret_file(email_hint)
 
     flow = Flow.from_client_secrets_file(
-        CLIENT_SECRET_FILE,
+        client_secret_file,
         scopes=GOOGLE_SCOPES,
         redirect_uri=REDIRECT_URI,
     )
     flow.fetch_token(code=code)
 
     credentials = flow.credentials
-    email = get_user_email(credentials)  # Always use the actual account
-
-    print("✅ Authenticated Gmail:", email)
+    actual_email = get_user_email(credentials)
 
     token_data = {
         "token": credentials.token,
@@ -141,13 +165,9 @@ def oauth2callback(request: Request):
         "expiry": credentials.expiry.isoformat()
     }
 
-    save_client_token(email, token_data)
+    save_client_token(actual_email, token_data)
 
-    return RedirectResponse(url=f"http://localhost:3000/?success=true&email={email}")
-
-
-
-
+    return RedirectResponse(url=f"http://localhost:3000/?success=true&email={actual_email}")
 
 
 
