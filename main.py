@@ -117,7 +117,8 @@ def oauth2callback(request: Request):
 
     save_client_token(email, token_data)
 
-    return RedirectResponse(url=f"https://ai-email-frontend.vercel.app/?success=true&email={email}")
+    return RedirectResponse(url=f"http://localhost:3000/?success=true&email={email}")
+
 
 
 
