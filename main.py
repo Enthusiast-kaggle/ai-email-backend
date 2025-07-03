@@ -588,28 +588,27 @@ async def api_email_action(email_data: EmailRequest, background_tasks: Backgroun
             return {"status": "Error", "message": str(e)}
 
     elif email_data.action == "schedule":
-       if not email_data.sender_email:
-         return {"status": "Error", "message": "sender_email is required"}
+      if not email_data.sender_email:
+        return {"status": "Error", "message": "sender_email is required"}
 
-       if not email_data.timezone:
-         return {"status": "Error", "message": "Timezone is required for scheduling"}
+      if not email_data.timezone:
+        return {"status": "Error", "message": "Timezone is required for scheduling"}
 
-       recipients = email_data.recipients or ([email_data.recipient] if email_data.recipient else [])
-       if not recipients or not email_data.schedule_time or not email_data.body:
-         return {"status": "Error", "message": "Recipient(s), schedule time, and body required"}
+      recipients = email_data.recipients or ([email_data.recipient] if email_data.recipient else [])
+      if not recipients or not email_data.schedule_time or not email_data.body:
+        return {"status": "Error", "message": "Recipient(s), schedule time, and body required"}
  
-       for recipient in recipients:
-           store_scheduled_email(
-              email_data.sender_email,
-              recipient,
-              email_data.subject or "Scheduled Email",
-              email_data.body,
-              email_data.schedule_time,
-              email_data.timezone  # <- new timezone field
-        )
+      for recipient in recipients:
+          store_scheduled_email(
+             email_data.sender_email,
+             recipient,
+            email_data.subject or "Scheduled Email",
+             email_data.body,
+             email_data.schedule_time,
+             email_data.timezone  # <- new timezone field
+          )
 
-        return {"status": "Scheduled", "message": f"📅 Scheduled for {len(recipients)} recipient(s)"}
-
+      return {"status": "Scheduled", "message": f"📅 Scheduled for {len(recipients)} recipient(s)"}
     elif email_data.action == "extract":
         if not email_data.body:
             return {"status": "Error", "message": "Body required"}
