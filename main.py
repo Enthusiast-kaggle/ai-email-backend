@@ -452,6 +452,7 @@ class EmailRequest(BaseModel):
     schedule_time: Optional[str] = None
     tone: Optional[str] = None
     delay: Optional[int] = 30
+    timezone: str = "UTC"  # Default to UTC if not provided
 
 
 def generate_email_with_ai(prompt: str, tone: str) -> str:
