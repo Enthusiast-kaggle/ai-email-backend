@@ -50,6 +50,7 @@ def email_to_env_key(email: str) -> str:
 
 def get_client_secret_json(email: str):
     env_key = email_to_env_key(email)
+    print(f"🔍 Looking for env var: {env_key}")
     client_secret_str = os.getenv(env_key)
 
     if not client_secret_str:
@@ -113,7 +114,9 @@ def get_auth_url(email: str):
 
     try:
         secret_json = get_client_secret_json(email)
+        print("✅ Secret JSON loaded successfully")
     except Exception as e:
+        print("❌ Error loading client secret:", e)
         return {"error": str(e)}
 
     flow = Flow.from_client_config(
