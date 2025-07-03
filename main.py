@@ -108,6 +108,7 @@ class TokenPayload(BaseModel):
 def get_auth_url(email: str):
     print(f"📥 Received request for auth URL for {email}")
     client_secret_file = get_client_secret_file(email)
+    print("📁 Existing files in 'secrets' folder:", os.listdir("secrets"))
 
     if not os.path.exists(client_secret_file):
         print("❌ Client secret file missing")
