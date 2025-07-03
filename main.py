@@ -45,14 +45,18 @@ import sqlite3
 import io
 app = FastAPI()
 
+def email_to_filename(email: str) -> str:
+    return email.replace("@", "_at_")
+
 def get_client_secret_file(email):
     """
     Returns the path to the client secret file for the given email.
-    It expects files to be named like client_secret_email@gmail.com.json
+    It expects files to be named like client_secret_name_at_gmail.com.json
     """
-    safe_email = email.replace("@", "_at_")  # Optional safety
-    filename = f"client_secret_{safe_email}.json"
-    return filename
+    safe_email = email_to_filename(email)
+    client_secret_file = os.path.join("secrets", f"client_secret_{safe_email}.json")
+    return client_secret_file
+
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Setup: SQLite DB for token storage
@@ -113,7 +117,7 @@ def get_auth_url(email: str):
         redirect_uri=REDIRECT_URI,
     )
 
-    # 🔥 INCLUDE THE EMAIL AS `state` so it's passed back in the callback
+    # 🔥 Include original email as state for callback
     auth_url, _ = flow.authorization_url(
         access_type='offline',
         prompt='consent',
@@ -135,10 +139,11 @@ def get_user_email(credentials):
         print(f"❌ Failed to get user email: {e}")
         raise
 
+
 @app.get("/oauth2callback")
 def oauth2callback(request: Request):
     code = request.query_params.get("code")
-    email_hint = request.query_params.get("state")  # We'll pass email as state during auth
+    email_hint = request.query_params.get("state")  # This is the original email passed in state
 
     if not code or not email_hint:
         return {"error": "Missing code or email (state) in callback URL"}
@@ -150,10 +155,11 @@ def oauth2callback(request: Request):
         scopes=GOOGLE_SCOPES,
         redirect_uri=REDIRECT_URI,
     )
-    flow.fetch_token(code=code)
 
+    flow.fetch_token(code=code)
     credentials = flow.credentials
-    actual_email = get_user_email(credentials)
+
+    actual_email = get_user_email(credentials)  # Gmail account from token, not hint
 
     token_data = {
         "token": credentials.token,
@@ -168,7 +174,6 @@ def oauth2callback(request: Request):
     save_client_token(actual_email, token_data)
 
     return RedirectResponse(url=f"http://localhost:3000/?success=true&email={actual_email}")
-
 
 
 
