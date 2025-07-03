@@ -55,6 +55,7 @@ def get_client_secret_file(email):
     """
     safe_email = email_to_filename(email)
     client_secret_file = os.path.join("secrets", f"client_secret_{safe_email}.json")
+    print(f"🔍 Looking for file at: {client_secret_file}")  # 👈 ADD THIS
     return client_secret_file
 
 
