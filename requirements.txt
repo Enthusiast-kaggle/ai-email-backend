@@ -13,3 +13,4 @@ openai==0.28
 email-validator
 tzlocal
 python-multipart
+pytz
