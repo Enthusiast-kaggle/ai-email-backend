@@ -544,7 +544,8 @@ async def api_email_action(email_data: EmailRequest, background_tasks: Backgroun
             return {"status": "Error", "message": "Recipient(s), schedule time, and body required"}
 
         for recipient in recipients:
-            store_scheduled_email(recipient, email_data.subject or "Scheduled Email", email_data.body, email_data.schedule_time)
+            store_scheduled_email(email_data.sender_email, recipient, email_data.subject or "Scheduled Email", email_data.body, email_data.schedule_time)
+
 
         return {"status": "Scheduled", "message": f"📅 Scheduled for {len(recipients)} recipient(s)"}
 
