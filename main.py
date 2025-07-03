@@ -44,6 +44,31 @@ import sqlite3
 import io
 app = FastAPI()
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Setup: SQLite DB for token storage
+TOKEN_DB = os.path.join(BASE_DIR, "token_store.db")
+
+def init_token_db():
+    conn = sqlite3.connect(TOKEN_DB)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS tokens (
+            email TEXT PRIMARY KEY,
+            token TEXT,
+            refresh_token TEXT,
+            token_uri TEXT,
+            client_id TEXT,
+            client_secret TEXT,
+            scopes TEXT,
+            expiry TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+# Call on startup
+init_token_db()
+
 load_dotenv()  # Load variables from .env file once
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
@@ -127,25 +152,50 @@ def oauth2callback(request: Request):
 
 
 def save_client_token(email, token_dict):
-    """
-    Save the client OAuth token to a JSON file based on the email.
-    """
-    folder = "client_tokens"
-    os.makedirs(folder, exist_ok=True)
+    conn = sqlite3.connect(TOKEN_DB)
+    cursor = conn.cursor()
 
-    with open(os.path.join(folder, f"{email}.json"), "w") as f:
-        json.dump(token_dict, f)
+    cursor.execute("""
+        INSERT OR REPLACE INTO tokens (
+            email, token, refresh_token, token_uri, client_id, client_secret, scopes, expiry
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        email,
+        token_dict.get("token"),
+        token_dict.get("refresh_token"),
+        token_dict.get("token_uri"),
+        token_dict.get("client_id"),
+        token_dict.get("client_secret"),
+        json.dumps(token_dict.get("scopes", [])),
+        token_dict.get("expiry"),
+    ))
+
+    conn.commit()
+    conn.close()
+
 
 def load_client_token(email):
-    """
-    Load the client OAuth token from a JSON file based on the email.
-    """
-    path = os.path.join("client_tokens", f"{email}.json")
-    if not os.path.exists(path):
+    conn = sqlite3.connect(TOKEN_DB)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT * FROM tokens WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
         raise FileNotFoundError(f"No token found for {email}")
-    
-    with open(path, "r") as f:
-        return json.load(f)
+
+    token_dict = {
+        "token": row[1],
+        "refresh_token": row[2],
+        "token_uri": row[3],
+        "client_id": row[4],
+        "client_secret": row[5],
+        "scopes": json.loads(row[6]),
+        "expiry": row[7],
+    }
+    return token_dict
+
 def send_email(recipient, subject, body, client_token_data: dict):
     try:
         creds = Credentials.from_authorized_user_info(client_token_data)
