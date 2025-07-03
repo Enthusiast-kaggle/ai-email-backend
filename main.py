@@ -505,6 +505,11 @@ def check_and_send_scheduled_emails():
         conn.close()
         time.sleep(60)
 
+@app.on_event("startup")
+def start_scheduled_email_worker():
+    print("🕒 Starting scheduled email processor...")
+    threading.Thread(target=check_and_send_scheduled_emails, daemon=True).start()
+
 def fetch_sheet_data(sheet_url):
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
     creds = ServiceAccountCredentials.from_json_keyfile_name("sheets_credentials.json", SCOPES)
