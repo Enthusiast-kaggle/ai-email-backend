@@ -565,7 +565,6 @@ def fetch_sheet_data(sheet_url):
     sheet = client.open_by_url(sheet_url)
     worksheet = sheet.get_worksheet(0)
     return worksheet.get_all_records()
-
 @app.post("/email-action")
 async def api_email_action(email_data: EmailRequest, background_tasks: BackgroundTasks):
     if email_data.action == "generate":
@@ -589,27 +588,28 @@ async def api_email_action(email_data: EmailRequest, background_tasks: Backgroun
             return {"status": "Error", "message": str(e)}
 
     elif email_data.action == "schedule":
-      if not email_data.sender_email:
-        return {"status": "Error", "message": "sender_email is required"}
+        if not email_data.sender_email:
+            return {"status": "Error", "message": "sender_email is required"}
 
-      if not email_data.timezone:
-        return {"status": "Error", "message": "Timezone is required for scheduling"}
+        if not email_data.timezone:
+            return {"status": "Error", "message": "Timezone is required for scheduling"}
 
-      recipients = email_data.recipients or ([email_data.recipient] if email_data.recipient else [])
-      if not recipients or not email_data.schedule_time or not email_data.body:
-        return {"status": "Error", "message": "Recipient(s), schedule time, and body required"}
- 
-      for recipient in recipients:
-          store_scheduled_email(
-             email_data.sender_email,
-             recipient,
-            email_data.subject or "Scheduled Email",
-             email_data.body,
-             email_data.schedule_time,
-             email_data.timezone  # <- new timezone field
-          )
+        recipients = email_data.recipients or ([email_data.recipient] if email_data.recipient else [])
+        if not recipients or not email_data.schedule_time or not email_data.body:
+            return {"status": "Error", "message": "Recipient(s), schedule time, and body required"}
 
-      return {"status": "Scheduled", "message": f"📅 Scheduled for {len(recipients)} recipient(s)"}
+        for recipient in recipients:
+            store_scheduled_email(
+                sender_email=email_data.sender_email,
+                recipient=recipient,
+                subject=email_data.subject or "Scheduled Email",
+                body=email_data.body,
+                schedule_time=email_data.schedule_time,
+                timezone_str=email_data.timezone   # ✅ New param to convert to UTC
+            )
+
+        return {"status": "Scheduled", "message": f"📅 Scheduled for {len(recipients)} recipient(s)"}
+
     elif email_data.action == "extract":
         if not email_data.body:
             return {"status": "Error", "message": "Body required"}
@@ -704,6 +704,7 @@ Email:
 
     else:
         return {"status": "Error", "message": "Invalid action type"}
+
 
 @app.post("/upload-emails")
 async def upload_emails(file: UploadFile = File(...)):
