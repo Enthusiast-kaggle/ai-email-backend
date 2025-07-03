@@ -48,15 +48,20 @@ app = FastAPI()
 def email_to_env_key(email: str) -> str:
     return f"CLIENT_SECRET_{email.replace('@', '_at_').replace('.', '_')}"
 
-def get_client_secret_json(email: str):
-    env_key = email_to_env_key(email)
-    print(f"🔍 Looking for env var: {env_key}")
-    client_secret_str = os.getenv(env_key)
 
-    if not client_secret_str:
-        raise FileNotFoundError(f"No client secret found in environment for {email}")
 
-    return json.loads(client_secret_str)
+def get_client_secret_from_file(email: str) -> dict:
+    # Replace special characters to match your Render secret filename
+    safe_email = email.replace("@", "_at_").replace(".", "_")
+    filename = f"CLIENT_SECRET_{safe_email}"
+    filepath = f"/etc/secrets/{filename}"
+
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Client secret file not found at {filepath}")
+
+    with open(filepath, "r") as f:
+        return json.load(f)
+
 
 
 
@@ -113,26 +118,27 @@ def get_auth_url(email: str):
     print(f"📥 Received request for auth URL for {email}")
 
     try:
-        secret_json = get_client_secret_json(email)
-        print("✅ Secret JSON loaded successfully")
-    except Exception as e:
-        print("❌ Error loading client secret:", e)
+        client_config = get_client_secret_from_file(email)
+        flow = Flow.from_client_config(
+            client_config,
+            scopes=GOOGLE_SCOPES,
+            redirect_uri=REDIRECT_URI,
+        )
+
+        auth_url, _ = flow.authorization_url(
+            access_type='offline',
+            prompt='consent',
+            state=email  # we’ll use this to retrieve email later
+        )
+
+        return {"auth_url": auth_url}
+
+    except FileNotFoundError as e:
+        print("❌", e)
         return {"error": str(e)}
-
-    flow = Flow.from_client_config(
-        secret_json,
-        scopes=GOOGLE_SCOPES,
-        redirect_uri=REDIRECT_URI,
-    )
-
-    auth_url, _ = flow.authorization_url(
-        access_type='offline',
-        prompt='consent',
-        state=email
-    )
-
-    return {"auth_url": auth_url}
-
+    except Exception as e:
+        print("❌ Unexpected error:", e)
+        return {"error": "Something went wrong generating auth URL"}
 
 
 def get_user_email(credentials):
