@@ -96,7 +96,7 @@ GOOGLE_SCOPES = [
     "https://www.googleapis.com/auth/gmail.readonly"
 ]
 
-CLIENT_SECRET_FILE = "client_secret.json"  # Must exist in your root dir
+
 REDIRECT_URI = "https://ai-email-backend-1-m0vj.onrender.com/oauth2callback"
 
 
@@ -106,9 +106,11 @@ class TokenPayload(BaseModel):
 
 @app.get("/get-auth-url")
 def get_auth_url(email: str):
+    print(f"📥 Received request for auth URL for {email}")
     client_secret_file = get_client_secret_file(email)
 
     if not os.path.exists(client_secret_file):
+        print("❌ Client secret file missing")
         return {"error": f"Client secret file not found for {email}"}
 
     flow = Flow.from_client_secrets_file(
@@ -117,14 +119,15 @@ def get_auth_url(email: str):
         redirect_uri=REDIRECT_URI,
     )
 
-    # 🔥 Include original email as state for callback
     auth_url, _ = flow.authorization_url(
         access_type='offline',
         prompt='consent',
         state=email
     )
 
+    print(f"✅ Generated auth URL for {email}")
     return {"auth_url": auth_url}
+
 
 
 def get_user_email(credentials):
