@@ -483,6 +483,22 @@ def store_scheduled_email(sender_email, recipient, subject, body, schedule_time)
     ''', (sender_email, recipient, subject, body, schedule_time))
     conn.commit()
     conn.close()
+    
+def init_scheduled_db():
+    conn = sqlite3.connect(SCHEDULED_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS scheduled_emails (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sender TEXT NOT NULL,
+            recipient TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            body TEXT NOT NULL,
+            schedule_time TEXT NOT NULL
+        )
+    ''')
+    conn.commit()
+    conn.close()
 
 
 def check_and_send_scheduled_emails():
@@ -508,7 +524,9 @@ def check_and_send_scheduled_emails():
 @app.on_event("startup")
 def start_scheduled_email_worker():
     print("🕒 Starting scheduled email processor...")
+    init_scheduled_db()  # 🔑 Make sure table exists before thread starts
     threading.Thread(target=check_and_send_scheduled_emails, daemon=True).start()
+
 
 def fetch_sheet_data(sheet_url):
     SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
