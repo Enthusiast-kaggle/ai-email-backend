@@ -1,3 +1,5 @@
+from google.auth.transport.requests import Request as GoogleRequest
+
 from fastapi import FastAPI, BackgroundTasks, UploadFile, File, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -99,23 +101,25 @@ def oauth2callback(request: Request):
     flow.fetch_token(code=code)
 
     credentials = flow.credentials
-    access_token = credentials.token
-    refresh_token = credentials.refresh_token
-    expiry = credentials.expiry.isoformat()
-    email = get_user_email(credentials)
+    email = get_user_email(credentials)  # Always use the actual account
 
-    # Save token to client_tokens/{email}.json
-    save_client_token(email, {
-        "token": access_token,
-        "refresh_token": refresh_token,
+    print("✅ Authenticated Gmail:", email)
+
+    token_data = {
+        "token": credentials.token,
+        "refresh_token": credentials.refresh_token,
         "token_uri": credentials.token_uri,
         "client_id": credentials.client_id,
         "client_secret": credentials.client_secret,
         "scopes": credentials.scopes,
-        "expiry": expiry
-    })
+        "expiry": credentials.expiry.isoformat()
+    }
 
-    return RedirectResponse(url=f"https://ai-email-frontend.vercel.app?success=true&email={email}")
+    save_client_token(email, token_data)
+
+    return RedirectResponse(url=f"https://ai-email-frontend.vercel.app/?success=true&email={email}")
+
+
 
 
 
@@ -147,7 +151,8 @@ def send_email(recipient, subject, body, client_token_data: dict):
 
         # Refresh token if expired
         if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
+            creds.refresh(GoogleRequest())
+
 
         service = build("gmail", "v1", credentials=creds)
 
