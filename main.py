@@ -61,7 +61,9 @@ def create_otp_table():
     conn.close()
 
 create_otp_table()
-
+class OTPRequest(BaseModel):
+    email: str
+    otp: str
 import random
 
 def generate_otp():
@@ -102,6 +104,8 @@ app = FastAPI()
 @app.get("/send-otp")
 def send_otp(email: str = Query(..., description="Gmail address to send OTP")):
     otp = generate_otp()
+    # 🔐 Log the generated OTP for debugging (remove in production)
+    print(f"🔐 Generated OTP for {email}: {otp}")
     save_otp(email, otp)
     send_otp_email(email, otp)
     return JSONResponse(content={"message": f"OTP sent to {email}"})
@@ -117,7 +121,7 @@ bound_gmail_users = {}  # user_email -> set of allowed Gmail addresses
 
 
 @app.post("/verify-otp")
-def verify_otp(payload: dict):
+def verify_otp(payload: OTPRequest):
     email = payload.get("email")
     otp_input = payload.get("otp")
 
