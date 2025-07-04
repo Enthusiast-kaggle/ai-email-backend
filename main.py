@@ -120,26 +120,36 @@ logged_in_users = {}  # email: True after OTP verified
 bound_gmail_users = {}  # user_email -> set of allowed Gmail addresses
 
 
+import sqlite3
+
 @app.post("/verify-otp")
 def verify_otp(payload: OTPRequest):
-    email = payload.email  # ✅ Correct way
+    email = payload.email
     otp_input = payload.otp
 
     if not email or not otp_input:
         raise HTTPException(status_code=400, detail="Email and OTP required")
 
-    otp_record = otp_store.get(email)
-    if not otp_record:
+    conn = sqlite3.connect("otp.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT otp, expires_at FROM otps WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
         raise HTTPException(status_code=404, detail="OTP not found")
 
-    if otp_record["otp"] != otp_input:
+    saved_otp, expires_at_str = row
+    expires_at = datetime.fromisoformat(expires_at_str)
+
+    if saved_otp != otp_input:
         raise HTTPException(status_code=401, detail="Invalid OTP")
 
-    if datetime.utcnow() > otp_record["expires_at"]:
+    if datetime.utcnow() > expires_at:
         raise HTTPException(status_code=403, detail="OTP expired")
 
+    # ✅ OTP valid
     logged_in_users[email] = True
-
     if email not in bound_gmail_users:
         bound_gmail_users[email] = set()
     bound_gmail_users[email].add(email)
@@ -147,6 +157,7 @@ def verify_otp(payload: OTPRequest):
     print(f"✅ OTP verified and Gmail {email} bound to user session.")
 
     return {"success": True, "message": f"{email} verified"}
+
 
 
 @app.post("/logout")
