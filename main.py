@@ -122,8 +122,8 @@ bound_gmail_users = {}  # user_email -> set of allowed Gmail addresses
 
 @app.post("/verify-otp")
 def verify_otp(payload: OTPRequest):
-    email = payload.get("email")
-    otp_input = payload.get("otp")
+    email = payload.email  # ✅ Correct way
+    otp_input = payload.otp
 
     if not email or not otp_input:
         raise HTTPException(status_code=400, detail="Email and OTP required")
@@ -138,10 +138,8 @@ def verify_otp(payload: OTPRequest):
     if datetime.utcnow() > otp_record["expires_at"]:
         raise HTTPException(status_code=403, detail="OTP expired")
 
-    # ✅ OTP valid — log user in
     logged_in_users[email] = True
 
-    # 🔐 Bind Gmail to this user (email is the verified user in this case)
     if email not in bound_gmail_users:
         bound_gmail_users[email] = set()
     bound_gmail_users[email].add(email)
