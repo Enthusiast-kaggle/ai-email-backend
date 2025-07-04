@@ -41,9 +41,128 @@ from tracking import router as tracking_router, add_tracking_to_body, log_email
 from dotenv import load_dotenv
 from fastapi import Response
 from fastapi.responses import StreamingResponse
-import sqlite3
+
 import io
 app = FastAPI()
+
+
+def create_otp_table():
+    conn = sqlite3.connect("otp.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS otps (
+            email TEXT PRIMARY KEY,
+            otp TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+create_otp_table()
+
+import random
+
+def generate_otp():
+    return str(random.randint(100000, 999999))
+
+def save_otp(email, otp):
+    expires_at = (datetime.utcnow() + timedelta(minutes=5)).isoformat()
+    conn = sqlite3.connect("otp.db")
+    cursor = conn.cursor()
+    cursor.execute("REPLACE INTO otps (email, otp, expires_at) VALUES (?, ?, ?)", (email, otp, expires_at))
+    conn.commit()
+    conn.close()
+
+import smtplib
+from email.mime.text import MIMEText
+
+SMTP_EMAIL = "ayushsinghrajput55323@gmail.com"               # Replace with your sender email
+SMTP_PASSWORD = "hrhs mrsr deho lfng"         # Use Gmail app password
+
+def send_otp_email(to_email, otp):
+    subject = "🔐 Your OTP Code"
+    body = f"Your login OTP is: {otp}\n\nIt will expire in 5 minutes."
+
+    msg = MIMEText(body)
+    msg["Subject"] = subject
+    msg["From"] = SMTP_EMAIL
+    msg["To"] = to_email
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        server.sendmail(SMTP_EMAIL, to_email, msg.as_string())
+
+from fastapi import FastAPI, Query
+from fastapi.responses import JSONResponse
+
+app = FastAPI()
+
+@app.get("/send-otp")
+def send_otp(email: str = Query(..., description="Gmail address to send OTP")):
+    otp = generate_otp()
+    save_otp(email, otp)
+    send_otp_email(email, otp)
+    return JSONResponse(content={"message": f"OTP sent to {email}"})
+
+from fastapi import HTTPException
+
+# Simulated in-memory OTP store — replace with DB in production
+otp_store = {}  # email: { otp: "123456", expires_at: datetime }
+
+# Simple in-memory login store — replace with DB or JWT later
+logged_in_users = {}  # email: True after OTP verified
+bound_gmail_users = {}  # user_email -> set of allowed Gmail addresses
+
+
+@app.post("/verify-otp")
+def verify_otp(payload: dict):
+    email = payload.get("email")
+    otp_input = payload.get("otp")
+
+    if not email or not otp_input:
+        raise HTTPException(status_code=400, detail="Email and OTP required")
+
+    otp_record = otp_store.get(email)
+    if not otp_record:
+        raise HTTPException(status_code=404, detail="OTP not found")
+
+    if otp_record["otp"] != otp_input:
+        raise HTTPException(status_code=401, detail="Invalid OTP")
+
+    if datetime.utcnow() > otp_record["expires_at"]:
+        raise HTTPException(status_code=403, detail="OTP expired")
+
+    # ✅ OTP valid — log user in
+    logged_in_users[email] = True
+
+    # 🔐 Bind Gmail to this user (email is the verified user in this case)
+    if email not in bound_gmail_users:
+        bound_gmail_users[email] = set()
+    bound_gmail_users[email].add(email)
+
+    print(f"✅ OTP verified and Gmail {email} bound to user session.")
+
+    return {"success": True, "message": f"{email} verified"}
+
+
+@app.post("/logout")
+def logout_user(payload: dict = Body(...)):
+    email = payload.get("email")
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Email is required")
+
+    if email in logged_in_users:
+        del logged_in_users[email]
+        print(f"👋 Logged out user: {email}")
+
+        # Optionally remove Gmail associations for this user:
+        # bound_gmail_users.pop(email, None)
+
+        return {"message": f"Successfully logged out {email}"}
+    else:
+        raise HTTPException(status_code=404, detail="User not logged in or already logged out")
 
 def email_to_env_key(email: str) -> str:
     return f"CLIENT_SECRET_{email.replace('@', '_at_').replace('.', '_')}"
@@ -114,11 +233,21 @@ class TokenPayload(BaseModel):
 from google_auth_oauthlib.flow import Flow
 
 @app.get("/get-auth-url")
-def get_auth_url(email: str):
-    print(f"📥 Received request for auth URL for {email}")
+def get_auth_url(user_email: str, gmail: str):
+    print(f"📥 Request to link Gmail {gmail} from logged-in user {user_email}")
+
+    # 🔐 Ensure the user has verified their OTP
+    user_record = logged_in_users.get(user_email)
+    if not user_record or not user_record.get("verified"):
+        return {"error": "User is not logged in or verified"}
+
+    # 🔐 Check if the Gmail is allowed for this user
+    allowed_gmails = bound_gmail_users.get(user_email, set())
+    if gmail not in allowed_gmails:
+        return {"error": "This Gmail is not linked to your account"}
 
     try:
-        client_config = get_client_secret_from_file(email)
+        client_config = get_client_secret_from_file(gmail)
         flow = Flow.from_client_config(
             client_config,
             scopes=GOOGLE_SCOPES,
@@ -128,7 +257,7 @@ def get_auth_url(email: str):
         auth_url, _ = flow.authorization_url(
             access_type='offline',
             prompt='consent',
-            state=email  # we’ll use this to retrieve email later
+            state=gmail  # we use this to fetch Gmail later
         )
 
         return {"auth_url": auth_url}
@@ -140,7 +269,7 @@ def get_auth_url(email: str):
         print("❌ Unexpected error:", e)
         return {"error": "Something went wrong generating auth URL"}
 
-
+        
 def get_user_email(credentials):
     """
     Fetch the authenticated user's email address using Gmail API.
