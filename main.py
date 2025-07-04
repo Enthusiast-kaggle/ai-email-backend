@@ -250,12 +250,11 @@ from google_auth_oauthlib.flow import Flow
 def get_auth_url(user_email: str, gmail: str):
     print(f"📥 Request to link Gmail {gmail} from logged-in user {user_email}")
 
-    # 🔐 Ensure the user has verified their OTP
-    user_record = logged_in_users.get(user_email)
-    if not user_record or not user_record.get("verified"):
+    # ✅ Check if user is logged in
+    if not logged_in_users.get(user_email):
         return {"error": "User is not logged in or verified"}
 
-    # 🔐 Check if the Gmail is allowed for this user
+    # ✅ Check if Gmail is allowed
     allowed_gmails = bound_gmail_users.get(user_email, set())
     if gmail not in allowed_gmails:
         return {"error": "This Gmail is not linked to your account"}
@@ -271,7 +270,7 @@ def get_auth_url(user_email: str, gmail: str):
         auth_url, _ = flow.authorization_url(
             access_type='offline',
             prompt='consent',
-            state=gmail  # we use this to fetch Gmail later
+            state=gmail
         )
 
         return {"auth_url": auth_url}
@@ -282,6 +281,7 @@ def get_auth_url(user_email: str, gmail: str):
     except Exception as e:
         print("❌ Unexpected error:", e)
         return {"error": "Something went wrong generating auth URL"}
+
 
         
 def get_user_email(credentials):
