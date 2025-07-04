@@ -164,11 +164,12 @@ def oauth2callback(request: Request):
 
     client_secret_file = get_client_secret_from_file(email_hint)
 
-    flow = Flow.from_client_secrets_file(
-        client_secret_file,
-        scopes=GOOGLE_SCOPES,
-        redirect_uri=REDIRECT_URI,
+    flow = Flow.from_client_config(
+    client_secret_file,  # this is now a dict, not a file path
+    scopes=GOOGLE_SCOPES,
+    redirect_uri=REDIRECT_URI,
     )
+
 
     flow.fetch_token(code=code)
     credentials = flow.credentials
