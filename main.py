@@ -534,7 +534,7 @@ def initiate_warmup_for_client(client_email):
         )
 
 @app.post("/start-warmup")
-def start_warmup(client_email: str):
+def start_warmup(client_email: str = Body(...)):
     state = load_state()
 
     if state.get("enabled") and state.get("client_email") == client_email:
