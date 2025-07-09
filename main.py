@@ -333,7 +333,7 @@ def oauth2callback(request: Request):
         "scopes": credentials.scopes,
         "expiry": credentials.expiry.isoformat()
     }
-    requests.post("https://yourdomain.com/start-warmup", json={"client_email": actual_email})
+    requests.post("https://ai-email-backend-1-m0vj.onrender.com/start-warmup", json={"client_email": actual_email})
     save_client_token(actual_email, token_data)
 
     return RedirectResponse(url=f"http://localhost:3000/?success=true&email={actual_email}")
@@ -489,6 +489,8 @@ def send_warmup_email(to, subject, body, sender):
         state = load_state()
         state["progress"] += 1
         save_state(state)
+        print(f"📤 Sending warmup email from {sender} to {to}")
+
 
 def initiate_warmup_for_client(client_email):
     pool = load_warmup_pool()
@@ -515,6 +517,7 @@ def initiate_warmup_for_client(client_email):
             id=f"warmup-to-client-{sender}-{int(time.time())}",
             replace_existing=False,
         )
+        print(f"📬 Scheduling warmup emails FROM trusted pool TO {client_email}")
 
         scheduler.add_job(
             send_warmup_email,
@@ -544,6 +547,7 @@ def start_warmup(client_email: str):
 
     load_warmup_pool()
     initiate_warmup_for_client(client_email)
+    print(f"🔥 Warmup started for {client_email}")
 
     scheduler.add_job(
         initiate_warmup_for_client,
