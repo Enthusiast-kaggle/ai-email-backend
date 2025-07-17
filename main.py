@@ -72,7 +72,9 @@ class OTPRequest(BaseModel):
 import random
 
 def schedule_email(sender_email, recipient_email):
-    subject, body = generate_email_with_ai(sender_email, recipient_email)
+    body = generate_email_with_ai(sender_email, recipient_email)
+    subject = "Warmup Email"  # or any default subject
+
     print(f"🚀 Sending warmup email from {sender_email} to {recipient_email}")
 
     # 1. Load stored token
