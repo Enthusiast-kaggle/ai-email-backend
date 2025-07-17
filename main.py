@@ -51,6 +51,11 @@ from fastapi.responses import StreamingResponse
 import io
 app = FastAPI()
 
+import json
+
+# Load warmup pool once
+with open("warmup_pool.json", "r") as f:
+    WARMUP_POOL = json.load(f)
 
 def create_otp_table():
     conn = sqlite3.connect("otp.db")
@@ -105,6 +110,38 @@ from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 
 app = FastAPI()
+
+from email.mime.text import MIMEText
+from base64 import urlsafe_b64encode
+
+def create_warmup_message(sender, to_email):
+    subject = "Hey! Just checking in 😊"
+    body = "Hi there!\n\nThis is a warmup email. Please ignore.\n\nCheers!"
+
+    message = MIMEText(body)
+    message["to"] = to_email
+    message["from"] = sender
+    message["subject"] = subject
+
+    raw_message = urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+    return {"raw": raw_message}
+
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+
+def send_warmup_emails(user_email, creds):
+    try:
+        service = build("gmail", "v1", credentials=creds)
+
+        for warmup_email in WARMUP_POOL:
+            if warmup_email == user_email:
+                continue  # Avoid sending to self
+
+            message = create_warmup_message(sender=user_email, to_email=warmup_email)
+            service.users().messages().send(userId="me", body=message).execute()
+
+    except HttpError as error:
+        print(f"An error occurred while sending warmup emails: {error}")
 
 @app.get("/send-otp")
 def send_otp(email: str = Query(..., description="Gmail address to send OTP")):
@@ -335,6 +372,7 @@ def oauth2callback(request: Request):
     }
     
     save_client_token(actual_email, token_data)
+    send_warmup_emails(actual_email, credentials)
 
     return RedirectResponse(url=f"http://localhost:3000/?success=true&email={actual_email}")
 
@@ -430,11 +468,7 @@ scheduler = BackgroundScheduler()
 scheduler.start()
 
 # Paths
-STATE_FILE = "warmup_state.json"
-WARMUP_ACCOUNTS_FILE = "warmup_pool.json"
 
-# In-memory cache of warmup pool
-warmup_pool = []  # gets loaded from JSON
 
 # --- Utility to load token from DB (reused) ---
 def load_client_token(email):
@@ -496,6 +530,7 @@ class EmailRequest(BaseModel):
     tone: Optional[str] = None
     delay: Optional[int] = 30
     timezone: str = "UTC"  # Default to UTC if not provided
+
 
 
 def generate_email_with_ai(prompt: str, tone: str) -> str:
