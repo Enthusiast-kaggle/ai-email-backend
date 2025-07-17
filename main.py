@@ -173,7 +173,7 @@ def send_warmup_emails(sender_email, creds):
     for recipient in recipients:
         if recipient == sender_email:
             continue
-        send_email(sender_email, creds, recipient)
+        send_email(recipient, subject, body, client_token_data)
 
     # Update progress
     if limit < len(warmup_pool):
