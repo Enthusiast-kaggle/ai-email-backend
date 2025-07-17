@@ -71,6 +71,48 @@ class OTPRequest(BaseModel):
     otp: str
 import random
 
+def schedule_email(sender_email, recipient_email):
+    subject, body = generate_email_body(sender_email, recipient_email)
+
+    print(f"🚀 Sending warmup email from {sender_email} to {recipient_email}")
+
+    # 1. Load stored token
+    token_data = load_client_token(sender_email)  # Assuming this reads from your DB or file
+
+    if not token_data:
+        print(f"❌ No token found for {sender_email}")
+        return
+
+    credentials = Credentials(
+        token=token_data["token"],
+        refresh_token=token_data.get("refresh_token"),
+        token_uri=token_data["token_uri"],
+        client_id=token_data["client_id"],
+        client_secret=token_data["client_secret"],
+        scopes=token_data["scopes"]
+    )
+
+    try:
+        # 2. Build Gmail service
+        service = build("gmail", "v1", credentials=credentials)
+
+        # 3. Create MIME message
+        message = MIMEText(body)
+        message["to"] = recipient_email
+        message["from"] = sender_email
+        message["subject"] = subject
+
+        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
+        send_message = {
+            "raw": raw_message
+        }
+
+        # 4. Send message
+        service.users().messages().send(userId="me", body=send_message).execute()
+        print(f"✅ Email sent from {sender_email} to {recipient_email}")
+    except Exception as e:
+        print(f"❌ Failed to send warmup email: {e}")
+        
 def trigger_warmup(sender_email: str, warmup_emails: list):
     for recipient in warmup_emails:
         schedule_email(sender_email, recipient)
