@@ -345,7 +345,7 @@ def oauth2callback(request: Request):
         "scopes": credentials.scopes,
         "expiry": credentials.expiry.isoformat()
     }
-    warmup_emails = list(WARMUP_POOL.values())
+    warmup_emails = WARMUP_POOL
     if actual_email in warmup_emails:
         warmup_emails.remove(actual_email)
 
