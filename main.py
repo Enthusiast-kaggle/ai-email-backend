@@ -75,6 +75,14 @@ def trigger_warmup(sender_email: str, warmup_emails: list):
     for recipient in warmup_emails:
         schedule_email(sender_email, recipient)
 
+WARMUP_POOL = {}
+
+# Load warmup_pool.json at startup
+try:
+    with open("warmup_pool.json", "r") as f:
+        WARMUP_POOL = json.load(f)
+except FileNotFoundError:
+    print("warmup_pool.json not found. WARMUP_POOL is empty.")
 def generate_otp():
     return str(random.randint(100000, 999999))
 
