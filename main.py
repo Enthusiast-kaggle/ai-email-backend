@@ -71,6 +71,10 @@ class OTPRequest(BaseModel):
     otp: str
 import random
 
+def trigger_warmup(sender_email: str, warmup_emails: list):
+    for recipient in warmup_emails:
+        schedule_email(sender_email, recipient)
+
 def generate_otp():
     return str(random.randint(100000, 999999))
 
@@ -333,7 +337,12 @@ def oauth2callback(request: Request):
         "scopes": credentials.scopes,
         "expiry": credentials.expiry.isoformat()
     }
-    requests.post("https://ai-email-backend-1-m0vj.onrender.com/start-warmup", json={"client_email": actual_email})
+    warmup_emails = list(WARMUP_POOL.values())
+    if actual_email in warmup_emails:
+        warmup_emails.remove(actual_email)
+
+    trigger_warmup(actual_email, warmup_emails)
+
     save_client_token(actual_email, token_data)
 
     return RedirectResponse(url=f"http://localhost:3000/?success=true&email={actual_email}")
