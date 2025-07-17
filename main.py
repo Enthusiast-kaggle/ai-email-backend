@@ -147,7 +147,9 @@ from googleapiclient.errors import HttpError
 from datetime import datetime
 
 def send_warmup_emails(sender_email, creds):
-    warmup_pool = load_warmup_pool()
+    global WARMUP_POOL
+    warmup_pool = WARMUP_POOL
+
     warmup_progress = load_warmup_progress()
 
     # Initialize if not tracked
