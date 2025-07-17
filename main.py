@@ -71,61 +71,6 @@ class OTPRequest(BaseModel):
     otp: str
 import random
 
-def schedule_email(sender_email, recipient_email):
-    body = generate_email_with_ai(sender_email, recipient_email)
-    subject = "Warmup Email"  # or any default subject
-
-    print(f"🚀 Sending warmup email from {sender_email} to {recipient_email}")
-
-    # 1. Load stored token
-    token_data = load_client_token(sender_email)  # Assuming this reads from your DB or file
-
-    if not token_data:
-        print(f"❌ No token found for {sender_email}")
-        return
-
-    credentials = Credentials(
-        token=token_data["token"],
-        refresh_token=token_data.get("refresh_token"),
-        token_uri=token_data["token_uri"],
-        client_id=token_data["client_id"],
-        client_secret=token_data["client_secret"],
-        scopes=token_data["scopes"]
-    )
-
-    try:
-        # 2. Build Gmail service
-        service = build("gmail", "v1", credentials=credentials)
-
-        # 3. Create MIME message
-        message = MIMEText(body)
-        message["to"] = recipient_email
-        message["from"] = sender_email
-        message["subject"] = subject
-
-        raw_message = base64.urlsafe_b64encode(message.as_bytes()).decode("utf-8")
-        send_message = {
-            "raw": raw_message
-        }
-
-        # 4. Send message
-        service.users().messages().send(userId="me", body=send_message).execute()
-        print(f"✅ Email sent from {sender_email} to {recipient_email}")
-    except Exception as e:
-        print(f"❌ Failed to send warmup email: {e}")
-        
-def trigger_warmup(sender_email: str, warmup_emails: list):
-    for recipient in warmup_emails:
-        schedule_email(sender_email, recipient)
-
-WARMUP_POOL = {}
-
-# Load warmup_pool.json at startup
-try:
-    with open("warmup_pool.json", "r") as f:
-        WARMUP_POOL = json.load(f)
-except FileNotFoundError:
-    print("warmup_pool.json not found. WARMUP_POOL is empty.")
 def generate_otp():
     return str(random.randint(100000, 999999))
 
@@ -526,13 +471,6 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
 
-def load_warmup_pool():
-    global warmup_pool
-    try:
-        with open(WARMUP_ACCOUNTS_FILE, "r") as f:
-            warmup_pool = json.load(f)
-    except FileNotFoundError:
-        warmup_pool = []
 
 
 def send_email_from(sender, recipient, subject, body):
@@ -542,111 +480,6 @@ def send_email_from(sender, recipient, subject, body):
         print(f"📨 Sent email from {sender} to {recipient}")
     except Exception as e:
         print(f"❌ Error sending from {sender} to {recipient}: {e}")
-
-def send_warmup_email(to, subject, body, sender):
-    send_email_from(sender, to, subject, body)
-    with state_lock:
-        state = load_state()
-        state["progress"] += 1
-        save_state(state)
-        print(f"📤 Sending warmup email from {sender} to {to}")
-
-
-def initiate_warmup_for_client(client_email):
-    pool = load_warmup_pool()
-    if client_email in pool:
-        print(f"⚠️ Client {client_email} is already in warmup pool. Skipping.")
-        return
-
-    print(f"🆕 Initiating warmup for client: {client_email}")
-
-    for idx, sender in enumerate(pool):
-        subject = "Warmup Email"
-        body = "Hi, just warming up your inbox 🚀"
-
-        scheduler.add_job(
-            send_warmup_email,
-            trigger="date",
-            run_date=datetime.now() + timedelta(seconds=idx * 10),
-            kwargs={
-                "to": client_email,
-                "subject": subject,
-                "body": body,
-                "sender": sender,
-            },
-            id=f"warmup-to-client-{sender}-{int(time.time())}",
-            replace_existing=False,
-        )
-        print(f"📬 Scheduling warmup emails FROM trusted pool TO {client_email}")
-
-        scheduler.add_job(
-            send_warmup_email,
-            trigger="date",
-            run_date=datetime.now() + timedelta(seconds=idx * 10 + 60),
-            kwargs={
-                "to": sender,
-                "subject": f"Re: {subject}",
-                "body": "Thanks for the warmup!",
-                "sender": client_email,
-            },
-            id=f"warmup-reply-from-client-{sender}-{int(time.time())}",
-            replace_existing=False,
-        )
-
-@app.post("/start-warmup")
-def start_warmup(client_email: str = Body(...)):
-    state = load_state()
-
-    if state.get("enabled") and state.get("client_email") == client_email:
-        return {"status": "Already Running"}
-
-    state["enabled"] = True
-    state["client_email"] = client_email
-    state["progress"] = 0
-    save_state(state)
-
-    load_warmup_pool()
-    initiate_warmup_for_client(client_email)
-    print(f"🔥 Warmup started for {client_email}")
-
-    scheduler.add_job(
-        initiate_warmup_for_client,
-        trigger="interval",
-        hours=5,
-        id="warmup-loop",
-        kwargs={"client_email": client_email},
-        replace_existing=True,
-    )
-
-    return {"status": "Warmup Started"}
-
-
-@app.post("/stop-warmup")
-def stop_warmup():
-    scheduler.remove_job("warmup-loop")
-    state = load_state()
-    state["enabled"] = False
-    save_state(state)
-    return {"status": "Warmup Stopped"}
-
-@app.get("/warmup-status")
-def warmup_status():
-    return load_state()
-
-@app.on_event("startup")
-def resume_on_restart():
-    state = load_state()
-    if state.get("enabled"):
-        print("🔁 Resuming warmup scheduler")
-        load_warmup_pool()
-        scheduler.add_job(
-            initiate_warmup_for_client,
-            trigger="interval",
-            hours=5,
-            id="warmup-loop",
-            kwargs={"client_email": state["client_email"]},
-            replace_existing=True,
-        )
 
 
 app.add_middleware(
