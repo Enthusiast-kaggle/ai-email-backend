@@ -333,12 +333,7 @@ def oauth2callback(request: Request):
         "scopes": credentials.scopes,
         "expiry": credentials.expiry.isoformat()
     }
-    warmup_emails = WARMUP_POOL
-    if actual_email in warmup_emails:
-        warmup_emails.remove(actual_email)
-
-    trigger_warmup(actual_email, warmup_emails)
-
+    
     save_client_token(actual_email, token_data)
 
     return RedirectResponse(url=f"http://localhost:3000/?success=true&email={actual_email}")
