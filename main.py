@@ -111,6 +111,21 @@ from fastapi.responses import JSONResponse
 
 app = FastAPI()
 
+from datetime import datetime
+
+WARMUP_PROGRESS_FILE = "warmup_progress.json"
+
+def load_warmup_progress():
+    try:
+        with open(WARMUP_PROGRESS_FILE, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+def save_warmup_progress(progress):
+    with open(WARMUP_PROGRESS_FILE, "w") as f:
+        json.dump(progress, f, indent=2)
+
 from email.mime.text import MIMEText
 from base64 import urlsafe_b64encode
 
@@ -129,19 +144,43 @@ def create_warmup_message(sender, to_email):
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-def send_warmup_emails(user_email, creds):
-    try:
-        service = build("gmail", "v1", credentials=creds)
+from datetime import datetime
 
-        for warmup_email in WARMUP_POOL:
-            if warmup_email == user_email:
-                continue  # Avoid sending to self
+def send_warmup_emails(sender_email, creds):
+    warmup_pool = load_warmup_pool()
+    warmup_progress = load_warmup_progress()
 
-            message = create_warmup_message(sender=user_email, to_email=warmup_email)
-            service.users().messages().send(userId="me", body=message).execute()
+    # Initialize if not tracked
+    if sender_email not in warmup_progress:
+        warmup_progress[sender_email] = {"stage": 1, "last_sent": None}
 
-    except HttpError as error:
-        print(f"An error occurred while sending warmup emails: {error}")
+    stage = warmup_progress[sender_email]["stage"]
+    last_sent = warmup_progress[sender_email]["last_sent"]
+
+    # Send once per day
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    if last_sent == today_str:
+        print(f"Warmup already sent today for {sender_email}")
+        return
+
+    # Determine how many recipients to send based on stage
+    step_size = 5
+    limit = min(stage * step_size, len(warmup_pool))
+    recipients = warmup_pool[:limit]
+
+    for recipient in recipients:
+        if recipient == sender_email:
+            continue
+        send_email(sender_email, creds, recipient)
+
+    # Update progress
+    if limit < len(warmup_pool):
+        warmup_progress[sender_email]["stage"] += 1
+    warmup_progress[sender_email]["last_sent"] = today_str
+    save_warmup_progress(warmup_progress)
+
+    print(f"Warmup Stage {stage}: Sent to {limit} recipients for {sender_email}")
+
 
 @app.get("/send-otp")
 def send_otp(email: str = Query(..., description="Gmail address to send OTP")):
