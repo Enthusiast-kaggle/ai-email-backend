@@ -170,6 +170,25 @@ def send_warmup_emails(sender_email, creds):
     limit = min(stage * step_size, len(warmup_pool))
     recipients = warmup_pool[:limit]
 
+    # Prepare email subject and body
+    subject = "Hey there! Warming up this email 😊"
+    body = (
+        "Hi!\n\n"
+        "Just sending this warmup message to improve deliverability. "
+        "No need to respond.\n\nCheers!"
+    )
+
+    # Prepare token data from creds
+    client_token_data = {
+        "token": creds.token,
+        "refresh_token": creds.refresh_token,
+        "token_uri": creds.token_uri,
+        "client_id": creds.client_id,
+        "client_secret": creds.client_secret,
+        "scopes": creds.scopes,
+        "expiry": creds.expiry.isoformat() if creds.expiry else None
+    }
+
     for recipient in recipients:
         if recipient == sender_email:
             continue
@@ -182,7 +201,6 @@ def send_warmup_emails(sender_email, creds):
     save_warmup_progress(warmup_progress)
 
     print(f"Warmup Stage {stage}: Sent to {limit} recipients for {sender_email}")
-
 
 @app.get("/send-otp")
 def send_otp(email: str = Query(..., description="Gmail address to send OTP")):
