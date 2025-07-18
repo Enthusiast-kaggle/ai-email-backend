@@ -968,8 +968,9 @@ import requests
 import io
 import logging
 
-router = APIRouter()
-logger = logging.getLogger("uvicorn")
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 def convert_to_csv_url(sheet_url: str) -> str:
     match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
@@ -979,84 +980,89 @@ def convert_to_csv_url(sheet_url: str) -> str:
     return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
 
 @app.post("/ab-test")
-async def ab_test(request: Request):
+async def ab_test(data: ABTestRequest):
     try:
-        data = await request.json()
-        sheet_url = data.get("sheet_url")
-        if not sheet_url:
-            return {"error": "sheet_url is required in the JSON body."}
-        
-        logger.info(f"Received A/B test request for sheet URL: {sheet_url}")
+        sheet_url = data.sheet_url
+        logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
 
         # Convert to CSV download URL
-        csv_url = convert_to_csv_url(sheet_url)
+        if "edit#gid=" in sheet_url:
+            csv_url = sheet_url.replace("/edit#gid=", "/export?format=csv&gid=")
+        elif "edit" in sheet_url:
+            csv_url = sheet_url.replace("/edit", "/export?format=csv")
+        else:
+            return {"error": "Invalid Google Sheet URL format."}
+        logger.info(f"Converted CSV URL: {csv_url}")
 
-        # Download CSV from Google Sheets
+        # Download CSV
         response = requests.get(csv_url)
-
         if response.status_code != 200:
-             return {"error": "Failed to download CSV from provided URL."}
+            logger.error("Failed to download CSV.")
+            return {"error": "Failed to download CSV from provided URL."}
 
         contents = response.content
         df = pd.read_csv(io.BytesIO(contents))
-        logger.info("CSV loaded into DataFrame.")
+        logger.info(f"Loaded data with {len(df)} rows from sheet.")
 
-        # Required columns
-        required_cols = ["email", "subject(1)", "body(1)", "subject(2)", "body(2)", "sender_email"]
-        if not all(col in df.columns for col in required_cols):
-            return {
-                "error": "Missing required columns. Sheet must have: email, subject(1), body(1), subject(2), body(2), sender_email"
-            }
+        # Ensure required columns exist
+        required_columns = {"email", "subject_a", "body_a", "subject_b", "body_b", "sender_email"}
+        if not required_columns.issubset(df.columns):
+            logger.error("Missing one or more required columns.")
+            return {"error": "Missing one or more required columns in the Google Sheet."}
 
-        # Shuffle & split
+        # Strip whitespace from emails
+        df["email"] = df["email"].astype(str).str.strip()
+        df["sender_email"] = df["sender_email"].astype(str).str.strip()
+
+        # Split into A and B groups
         emails = df["email"].tolist()
         random.shuffle(emails)
-        half = len(emails) // 2
-        group_a = emails[:half]
-        group_b = emails[half:]
+        midpoint = len(emails) // 2
+        group_a = emails[:midpoint]
+        group_b = emails[midpoint:]
+        logger.info(f"A group size: {len(group_a)} | B group size: {len(group_b)}")
 
-        df_a = df[df["email"].isin(group_a)].copy()
-        df_b = df[df["email"].isin(group_b)].copy()
+        # Create final dataframe to send
+        df["group"] = df["email"].apply(lambda email: "A" if email in group_a else "B")
+        df["subject"] = df.apply(lambda row: row["subject_a"] if row["group"] == "A" else row["subject_b"], axis=1)
+        df["body"] = df.apply(lambda row: row["body_a"] if row["group"] == "A" else row["body_b"], axis=1)
 
-        df_a["subject"] = df_a["subject(1)"]
-        df_a["body"] = df_a["body(1)"]
-        df_b["subject"] = df_b["subject(2)"]
-        df_b["body"] = df_b["body(2)"]
-
-        final_df = pd.concat([df_a[["email", "subject", "body", "sender_email"]], df_b[["email", "subject", "body", "sender_email"]]])
-
-        # ✅ Send Emails
-        from utils.email_utils import send_email  # use your actual import path
+        final_df = df[["email", "subject", "body", "sender_email"]]
+        logger.info("Prepared final DataFrame for sending emails.")
+        logger.info(f"Preview:\n{final_df.head()}")
 
         success_count = 0
         failure_count = 0
 
+        # Loop to send emails
         for _, row in final_df.iterrows():
             to_email = row["email"]
             subject = row["subject"]
             body = row["body"]
             sender_email = row["sender_email"]
 
+            logger.info(f"Attempting to send email to: {to_email} | From: {sender_email}")
+
+            # Call your existing send_email function
             result = await send_email(sender_email, to_email, subject, body)
+
             if result["status"] == "success":
+                logger.info(f"Email sent successfully to {to_email}")
                 success_count += 1
             else:
+                logger.warning(f"Failed to send email to {to_email}: {result.get('error')}")
                 failure_count += 1
-                logger.warning(f"Failed to send to {to_email}: {result.get('error')}")
 
-        return {
-            "total_emails": len(final_df),
-            "group_a_count": len(df_a),
-            "group_b_count": len(df_b),
-            "sent": success_count,
-            "failed": failure_count,
-            "status": "A/B test campaign executed"
-        }
+        return JSONResponse(content={
+            "status": "completed",
+            "success": success_count,
+            "failed": failure_count
+        })
 
     except Exception as e:
-        logger.exception("Error during A/B test processing")
-        return {"error": str(e)}
-
+        logger.exception("Unhandled error during A/B testing")
+        return JSONResponse(status_code=500, content={"error": str(e)})
+        
 @app.get("/")
 def root():
     return {"message": "✅ AI Email Assistant Backend is running!"}
