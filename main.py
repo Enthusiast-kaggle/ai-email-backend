@@ -1035,6 +1035,8 @@ async def ab_test(data: ABTestRequest):
 
         success_count = 0
         failure_count = 0
+        with open("token.json", "r") as token_file:
+             client_token_data = json.load(token_file)
 
         for _, row in final_df.iterrows():
             to_email = row["email"]
@@ -1042,7 +1044,9 @@ async def ab_test(data: ABTestRequest):
             body = row["body"]
 
             logger.info(f"Sending email to {to_email} from {default_sender}")
-            result = send_email(default_sender, to_email, subject, body)
+            result = send_email(to_email, subject, body, client_token_data)
+
+
 
             if result["status"] == "success":
                 logger.info(f"✅ Email sent to {to_email}")
