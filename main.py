@@ -971,14 +971,13 @@ import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
-def convert_to_csv_url(sheet_url: str) -> str:
-    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
-    if not match:
-        raise ValueError("Invalid Google Sheet URL format.")
-    sheet_id = match.group(1)
-    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
-
+def convert_to_csv_url(sheet_url):
+    match = re.search(r"/d/([a-zA-Z0-9-_]+)", sheet_url)
+    if match:
+        sheet_id = match.group(1)
+        return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
+    else:
+        return None
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest):
     try:
