@@ -305,7 +305,7 @@ import os
 import sqlite3
 
 # ✅ Use /tmp — guaranteed writable in Render and all cloud environments
-TOKEN_DB = os.path.join("/tmp", "token_store.db")
+TOKEN_DB = "/tmp/token_store.db"
 
 def init_token_db():
     print(f"📂 init_token_db using: {os.path.abspath(TOKEN_DB)}")
@@ -449,7 +449,12 @@ def oauth2callback(request: Request):
 
 
 def save_client_token(email, token_dict):
-    conn = sqlite3.connect(TOKEN_DB)
+    print(f"🔐 Saving token to: {TOKEN_DB}")
+    try:
+        conn = sqlite3.connect(TOKEN_DB)
+    except Exception as e:
+        print(f"❌ ERROR: Could not open DB file at {TOKEN_DB} — {e}")
+        raise
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -476,7 +481,12 @@ TOKEN_DB = os.path.join(BASE_DIR, "token_db", "tokens.db")
 
 def load_client_token(email):
     print(f"📂 Using DB: {TOKEN_DB}")  # Debug print
-    conn = sqlite3.connect(TOKEN_DB)
+    print(f"🔐 Saving token to: {TOKEN_DB}")
+    try:
+        conn = sqlite3.connect(TOKEN_DB)
+    except Exception as e:
+        print(f"❌ ERROR: Could not open DB file at {TOKEN_DB} — {e}")
+        raise
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM tokens WHERE email = ?", (email,))
