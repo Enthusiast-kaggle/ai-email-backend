@@ -961,6 +961,12 @@ def get_campaign_report():
 
 class ABTestRequest(BaseModel):
     sheet_url: str
+    subject_a: str
+    body_a: str
+    subject_b: str
+    body_b: str
+    email: str  # ✅ Add this
+
 
 from fastapi import APIRouter, Request
 import pandas as pd
@@ -986,6 +992,7 @@ async def ab_test(data: ABTestRequest):
         sheet_url = data.sheet_url
         sender_email = data.email
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
+        print("Received A/B test data:", data.dict())
 
         csv_url = convert_to_csv_url(sheet_url)
         if not csv_url:
