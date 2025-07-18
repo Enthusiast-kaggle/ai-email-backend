@@ -961,12 +961,7 @@ def get_campaign_report():
 
 class ABTestRequest(BaseModel):
     sheet_url: str
-    subject_a: str
-    body_a: str
-    subject_b: str
-    body_b: str
-    email: str  # ✅ Add this
-
+    
 
 from fastapi import APIRouter, Request
 import pandas as pd
@@ -986,11 +981,16 @@ def convert_to_csv_url(sheet_url):
     else:
         return None
         
+from fastapi import Request
+
 @app.post("/ab-test")
-async def ab_test(data: ABTestRequest):
+async def ab_test(data: ABTestRequest, request: Request):
     try:
         sheet_url = data.sheet_url
-        sender_email = data.email
+        # Set your default sender email here (or fetch it from session/db/token)
+        client_token_data = load_client_token()  # assumes you determine client identity internally
+        sender_email = get_user_email_from_token(client_token_data) # Replace with actual sender logic
+
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
         print("Received A/B test data:", data.dict())
 
@@ -1053,6 +1053,7 @@ async def ab_test(data: ABTestRequest):
     except Exception as e:
         logger.exception("Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 @app.get("/")
 def root():
