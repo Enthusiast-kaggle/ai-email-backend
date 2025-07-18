@@ -47,7 +47,37 @@ from tracking import router as tracking_router, add_tracking_to_body, log_email
 from dotenv import load_dotenv
 from fastapi import Response
 from fastapi.responses import StreamingResponse
+import os
+import sqlite3
 
+# ✅ Use /tmp — guaranteed writable in Render and all cloud environments
+TOKEN_DB = "/tmp/token_store.db"
+
+def init_token_db():
+    print(f"📂 init_token_db using: {os.path.abspath(TOKEN_DB)}")
+    try:
+        conn = sqlite3.connect(TOKEN_DB)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS tokens (
+                email TEXT PRIMARY KEY,
+                token TEXT,
+                refresh_token TEXT,
+                token_uri TEXT,
+                client_id TEXT,
+                client_secret TEXT,
+                scopes TEXT,
+                expiry TEXT
+            )
+        """)
+        conn.commit()
+        conn.close()
+        print("✅ Token DB initialized successfully.")
+    except Exception as e:
+        print(f"❌ Failed to initialize token DB: {e}")
+
+# ✅ Ensure DB is initialized on app start
+init_token_db()
 import io
 app = FastAPI()
 
@@ -301,37 +331,7 @@ def get_client_secret_from_file(email: str) -> dict:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Setup: SQLite DB for token storage
-import os
-import sqlite3
 
-# ✅ Use /tmp — guaranteed writable in Render and all cloud environments
-TOKEN_DB = "/tmp/token_store.db"
-
-def init_token_db():
-    print(f"📂 init_token_db using: {os.path.abspath(TOKEN_DB)}")
-    try:
-        conn = sqlite3.connect(TOKEN_DB)
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS tokens (
-                email TEXT PRIMARY KEY,
-                token TEXT,
-                refresh_token TEXT,
-                token_uri TEXT,
-                client_id TEXT,
-                client_secret TEXT,
-                scopes TEXT,
-                expiry TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
-        print("✅ Token DB initialized successfully.")
-    except Exception as e:
-        print(f"❌ Failed to initialize token DB: {e}")
-
-# ✅ Ensure DB is initialized on app start
-init_token_db()
 
 
 load_dotenv()  # Load variables from .env file once
