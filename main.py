@@ -301,8 +301,7 @@ def get_client_secret_from_file(email: str) -> dict:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Setup: SQLite DB for token storage
-TOKEN_DB = os.path.join(BASE_DIR, "token_store.db")
-
+TOKEN_DB = os.path.join("/tmp", "token_store.db")
 def init_token_db():
     conn = sqlite3.connect(TOKEN_DB)
     print(f"📂 init_token_db using: {os.path.abspath(TOKEN_DB)}")
