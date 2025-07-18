@@ -962,6 +962,20 @@ def get_campaign_report():
 class ABTestRequest(BaseModel):
     sheet_url: str
     
+def get_latest_authenticated_gmail():
+    try:
+        conn = sqlite3.connect(TOKEN_DB)
+        cursor = conn.cursor()
+        cursor.execute("SELECT email FROM tokens ORDER BY rowid DESC LIMIT 1")
+        result = cursor.fetchone()
+        conn.close()
+        if result:
+            return result[0]  # The email
+        else:
+            return None
+    except Exception as e:
+        print(f"❌ ERROR reading from token DB: {e}")
+        return None
 
 from fastapi import APIRouter, Request
 import pandas as pd
@@ -987,10 +1001,11 @@ from fastapi import Request
 async def ab_test(data: ABTestRequest, request: Request):
     try:
         sheet_url = data.sheet_url
+        email = get_latest_authenticated_gmail()
         # Set your default sender email here (or fetch it from session/db/token)
-        client_token_data = load_client_token()  # assumes you determine client identity internally
+        client_token_data = load_client_token(email)  # assumes you determine client identity internally
         sender_email = get_user_email_from_token(client_token_data) # Replace with actual sender logic
-
+ 
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
         print("Received A/B test data:", data.dict())
 
