@@ -462,10 +462,14 @@ def save_client_token(email, token_dict):
     conn.close()
 
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TOKEN_DB = os.path.join(BASE_DIR, "token_db", "tokens.db")
+
 def load_client_token(email):
+    print(f"📂 Using DB: {TOKEN_DB}")  # Debug print
     conn = sqlite3.connect(TOKEN_DB)
     cursor = conn.cursor()
-    print(f"📂 load_client_token using: {os.path.abspath(TOKEN_DB)}")
+
     cursor.execute("SELECT * FROM tokens WHERE email = ?", (email,))
     row = cursor.fetchone()
     conn.close()
@@ -483,7 +487,7 @@ def load_client_token(email):
         "expiry": row[7],
     }
     return token_dict
-
+    
 def send_email(recipient, subject, body, client_token_data: dict):
     try:
         creds = Credentials.from_authorized_user_info(client_token_data)
