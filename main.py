@@ -301,7 +301,7 @@ def get_client_secret_from_file(email: str) -> dict:
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Setup: SQLite DB for token storage
-TOKEN_DB = os.path.join("/tmp", "token_store.db")
+TOKEN_DB = os.path.join(BASE_DIR, "token_store.db")
 def init_token_db():
     conn = sqlite3.connect(TOKEN_DB)
     print(f"📂 init_token_db using: {os.path.abspath(TOKEN_DB)}")
@@ -323,6 +323,12 @@ def init_token_db():
 
 # Call on startup
 init_token_db()
+
+try:
+    init_token_db()
+    print("✅ Token DB initialized successfully.")
+except Exception as e:
+    print(f"❌ Error initializing token DB: {e}")
 
 load_dotenv()  # Load variables from .env file once
 from fastapi import APIRouter, Request
