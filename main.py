@@ -978,42 +978,42 @@ def convert_to_csv_url(sheet_url):
         return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     else:
         return None
+
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest):
     try:
         sheet_url = data.sheet_url
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
 
-        # Convert to CSV download URL
-        if "edit#gid=" in sheet_url:
-            csv_url = sheet_url.replace("/edit#gid=", "/export?format=csv&gid=")
-        elif "edit" in sheet_url:
-            csv_url = sheet_url.replace("/edit", "/export?format=csv")
-        else:
+        # Use the conversion function
+        csv_url = convert_to_csv_url(sheet_url)
+        if not csv_url:
+            logger.error("Invalid Google Sheet URL format.")
             return {"error": "Invalid Google Sheet URL format."}
-        logger.info(f"Converted CSV URL: {csv_url}")
+        
+        logger.info(f"Converted Google Sheet URL to CSV export URL: {csv_url}")
 
         # Download CSV
         response = requests.get(csv_url)
         if response.status_code != 200:
-            logger.error("Failed to download CSV.")
+            logger.error(f"Failed to download CSV. HTTP Status: {response.status_code}")
             return {"error": "Failed to download CSV from provided URL."}
 
         contents = response.content
         df = pd.read_csv(io.BytesIO(contents))
-        logger.info(f"Loaded data with {len(df)} rows from sheet.")
+        logger.info(f"Successfully loaded data from sheet. Total rows: {len(df)}")
 
         # Ensure required columns exist
         required_columns = {"email", "subject_a", "body_a", "subject_b", "body_b", "sender_email"}
         if not required_columns.issubset(df.columns):
-            logger.error("Missing one or more required columns.")
-            return {"error": "Missing one or more required columns in the Google Sheet."}
+            missing = required_columns - set(df.columns)
+            logger.error(f"Missing required columns: {missing}")
+            return {"error": f"Missing one or more required columns: {missing}"}
 
-        # Strip whitespace from emails
         df["email"] = df["email"].astype(str).str.strip()
         df["sender_email"] = df["sender_email"].astype(str).str.strip()
 
-        # Split into A and B groups
+        # Split emails into two groups
         emails = df["email"].tolist()
         random.shuffle(emails)
         midpoint = len(emails) // 2
@@ -1021,35 +1021,31 @@ async def ab_test(data: ABTestRequest):
         group_b = emails[midpoint:]
         logger.info(f"A group size: {len(group_a)} | B group size: {len(group_b)}")
 
-        # Create final dataframe to send
         df["group"] = df["email"].apply(lambda email: "A" if email in group_a else "B")
         df["subject"] = df.apply(lambda row: row["subject_a"] if row["group"] == "A" else row["subject_b"], axis=1)
         df["body"] = df.apply(lambda row: row["body_a"] if row["group"] == "A" else row["body_b"], axis=1)
 
         final_df = df[["email", "subject", "body", "sender_email"]]
         logger.info("Prepared final DataFrame for sending emails.")
-        logger.info(f"Preview:\n{final_df.head()}")
+        logger.info(f"Email preview sample:\n{final_df.head()}")
 
         success_count = 0
         failure_count = 0
 
-        # Loop to send emails
         for _, row in final_df.iterrows():
             to_email = row["email"]
             subject = row["subject"]
             body = row["body"]
             sender_email = row["sender_email"]
 
-            logger.info(f"Attempting to send email to: {to_email} | From: {sender_email}")
-
-            # Call your existing send_email function
+            logger.info(f"Sending email to {to_email} from {sender_email}")
             result = await send_email(sender_email, to_email, subject, body)
 
             if result["status"] == "success":
-                logger.info(f"Email sent successfully to {to_email}")
+                logger.info(f"✅ Email sent successfully to {to_email}")
                 success_count += 1
             else:
-                logger.warning(f"Failed to send email to {to_email}: {result.get('error')}")
+                logger.warning(f"❌ Failed to send email to {to_email}: {result.get('error')}")
                 failure_count += 1
 
         return JSONResponse(content={
@@ -1059,9 +1055,9 @@ async def ab_test(data: ABTestRequest):
         })
 
     except Exception as e:
-        logger.exception("Unhandled error during A/B testing")
+        logger.exception("Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
-        
+
 @app.get("/")
 def root():
     return {"message": "✅ AI Email Assistant Backend is running!"}
