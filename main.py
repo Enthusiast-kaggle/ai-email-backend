@@ -590,7 +590,34 @@ class EmailRequest(BaseModel):
     delay: Optional[int] = 30
     timezone: str = "UTC"  # Default to UTC if not provided
 
+def get_latest_token():
+    db_path = os.path.join(BASE_DIR, "token_store.db")  # consistent with your saving path
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
+    cursor.execute("SELECT * FROM tokens ORDER BY expiry DESC LIMIT 1")
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        raise FileNotFoundError("No token found in token store.")
+
+    token_dict = {
+        "token": row[1],
+        "refresh_token": row[2],
+        "token_uri": row[3],
+        "client_id": row[4],
+        "client_secret": row[5],
+        "scopes": json.loads(row[6]),
+        "expiry": row[7],
+    }
+    return token_dict
+
+def get_user_email_from_token(creds_dict):
+    creds = Credentials.from_authorized_user_info(creds_dict)
+    service = build('oauth2', 'v2', credentials=creds)
+    user_info = service.userinfo().get().execute()
+    return user_info['email']
 
 def generate_email_with_ai(prompt: str, tone: str) -> str:
     full_prompt = f"Generate an email in a {tone} tone with the following content:\n\n{prompt}"
@@ -908,7 +935,6 @@ def get_campaign_report():
 
 class ABTestRequest(BaseModel):
     sheet_url: str
-    sender_email: str  # <-- NEW
 
 
 @app.post("/ab-test")
@@ -917,7 +943,7 @@ def ab_test(data: ABTestRequest):
 
     try:
         response = requests.get(sheet_url)
-        decoded = response.content.decode('utf-8')
+        decoded = response.content.decode("utf-8")
         lines = list(csv.reader(decoded.splitlines()))
         headers = lines[0]
         rows = lines[1:]
@@ -926,9 +952,10 @@ def ab_test(data: ABTestRequest):
             return {"error": "Sheet must contain: Email, Subject A, Body A, Subject B, Body B"}
 
         try:
-            client_token = load_client_token(data.sender_email)
+            client_token = get_latest_token()
+            sender_email = get_user_email_from_token(client_token)
         except Exception as e:
-            return {"error": f"Failed to load sender token: {e}"}
+            return {"error": f"Failed to load latest token or extract sender email: {e}"}
 
         group_a = []
         group_b = []
@@ -956,14 +983,16 @@ def ab_test(data: ABTestRequest):
 
         return {
             "status": "success",
+            "sender_email": sender_email,
             "group_a_count": len(group_a),
             "group_b_count": len(group_b),
-            "group_a_emails": [user["email"] for user in group_a],
-            "group_b_emails": [user["email"] for user in group_b]
+            "group_a_emails": [u["email"] for u in group_a],
+            "group_b_emails": [u["email"] for u in group_b],
         }
 
     except Exception as e:
         return {"error": str(e)}
+
 @app.get("/")
 def root():
     return {"message": "✅ AI Email Assistant Backend is running!"}
