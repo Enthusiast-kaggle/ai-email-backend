@@ -935,8 +935,8 @@ def get_campaign_report():
 
 class ABTestRequest(BaseModel):
     sheet_url: str
-
 import csv
+import random
 import io
 from fastapi import UploadFile, File, Form
 
@@ -956,13 +956,9 @@ async def ab_test_endpoint(sheet: UploadFile = File(...), client_email: str = Fo
 
         required_headers = ["email", "subject(1)", "body(1)", "subject(2)", "body(2)"]
         if not headers or any(h not in headers for h in required_headers):
-            return {
-                "status": "error",
-                "message": f"Invalid sheet format. Required headers: {', '.join(required_headers)}",
-                "received_headers": headers
-            }
+            return {"status": "error", "message": f"Invalid sheet format. Required headers: {', '.join(required_headers)}"}
 
-        # Get index of each column (in case they are in different order)
+        # Map indexes based on header names
         email_idx = headers.index("email")
         subject1_idx = headers.index("subject(1)")
         body1_idx = headers.index("body(1)")
@@ -973,57 +969,46 @@ async def ab_test_endpoint(sheet: UploadFile = File(...), client_email: str = Fo
         group_b = []
 
         for row in rows:
-            if len(row) < 5:
-                continue
-
             try:
                 email = row[email_idx].strip()
-                subject_1 = row[subject1_idx].strip()
-                body_1 = row[body1_idx].strip()
-                subject_2 = row[subject2_idx].strip()
-                body_2 = row[body2_idx].strip()
+                subject1 = row[subject1_idx].strip()
+                body1 = row[body1_idx].strip()
+                subject2 = row[subject2_idx].strip()
+                body2 = row[body2_idx].strip()
             except IndexError:
-                continue  # Skip rows with missing values
+                continue  # Skip invalid rows
 
             if random.choice([True, False]):
-                group_a.append({"email": email, "subject": subject_1, "body": body_1})
+                group_a.append({"email": email, "subject": subject1, "body": body1})
             else:
-                group_b.append({"email": email, "subject": subject_2, "body": body_2})
+                group_b.append({"email": email, "subject": subject2, "body": body2})
 
-        print(f"Parsed {len(rows)} rows from sheet.")
-        print("Group A Users:", [u["email"] for u in group_a])
-        print("Group B Users:", [u["email"] for u in group_b])
-
-        # Send emails to Group A
+        # Send to Group A
         for user in group_a:
             try:
                 send_email(user["email"], user["subject"], user["body"], client_token_data=client_token)
-                print(f"✅ Email sent to Group A: {user['email']}")
+                print(f"✅ Sent A to {user['email']}")
             except Exception as e:
-                print(f"❌ Failed to send Group A email to {user['email']}: {e}")
+                print(f"❌ Failed A to {user['email']}: {e}")
 
-        # Send emails to Group B
+        # Send to Group B
         for user in group_b:
             try:
                 send_email(user["email"], user["subject"], user["body"], client_token_data=client_token)
-                print(f"✅ Email sent to Group B: {user['email']}")
+                print(f"✅ Sent B to {user['email']}")
             except Exception as e:
-                print(f"❌ Failed to send Group B email to {user['email']}: {e}")
+                print(f"❌ Failed B to {user['email']}: {e}")
 
         return {
             "status": "success",
-            "message": f"Emails sent to {len(group_a)} Group A users and {len(group_b)} Group B users.",
+            "message": f"Emails sent to {len(group_a)} Group A and {len(group_b)} Group B users.",
             "group_a_count": len(group_a),
             "group_b_count": len(group_b)
         }
 
     except Exception as e:
         print("❌ AB Test Error:", e)
-        return {
-            "status": "error",
-            "message": "An error occurred while processing A/B test.",
-            "details": str(e)
-        }
+        return {"status": "error", "message": "An error occurred while processing A/B test.", "details": str(e)}
 
 @app.get("/")
 def root():
