@@ -979,74 +979,56 @@ def convert_to_csv_url(sheet_url):
         return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
     else:
         return None
+        
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest):
     try:
         sheet_url = data.sheet_url
+        sender_email = data.email
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
 
-        # Correctly convert to CSV URL
         csv_url = convert_to_csv_url(sheet_url)
         if not csv_url:
-            logger.error("Invalid Google Sheet URL format.")
             return {"error": "Invalid Google Sheet URL format."}
 
-        logger.info(f"Converted CSV URL: {csv_url}")
-
-        # Download the CSV
         response = requests.get(csv_url)
         if response.status_code != 200:
-            logger.error(f"Failed to download CSV. HTTP Status: {response.status_code}")
             return {"error": "Failed to download CSV from provided URL."}
 
         contents = response.content
         df = pd.read_csv(io.BytesIO(contents))
-        logger.info(f"Successfully loaded data from sheet. Total rows: {len(df)}")
-
-        # Normalize column names
         df.columns = df.columns.str.strip().str.lower()
+        df = df.copy()
 
-        # Required columns
         required_columns = {"email", "subject(1)", "body(1)", "subject(2)", "body(2)"}
-        if not required_columns.issubset(set(df.columns)):
+        if not required_columns.issubset(df.columns):
             missing = required_columns - set(df.columns)
-            logger.error(f"Missing required columns: {missing}")
-            return {"error": f"Missing one or more required columns: {missing}"}
+            return {"error": f"Missing required columns: {', '.join(missing)}"}
 
-        # Clean up emails
         df["email"] = df["email"].astype(str).str.strip()
 
-        # Split into A and B
         emails = df["email"].tolist()
         random.shuffle(emails)
         midpoint = len(emails) // 2
-        group_a = emails[:midpoint]
-        group_b = emails[midpoint:]
-
+        group_a = set(emails[:midpoint])
         df["group"] = df["email"].apply(lambda email: "A" if email in group_a else "B")
+
         df["subject"] = df.apply(lambda row: row["subject(1)"] if row["group"] == "A" else row["subject(2)"], axis=1)
         df["body"] = df.apply(lambda row: row["body(1)"] if row["group"] == "A" else row["body(2)"], axis=1)
 
-        # Set a default sender
-        default_sender = "your-default-email@example.com"
-
         final_df = df[["email", "subject", "body"]]
-        logger.info("Prepared final DataFrame for sending emails.")
 
         success_count = 0
         failure_count = 0
-        with open("token.json", "r") as token_file:
-             client_token_data = json.load(token_file)
+        client_token_data = load_client_token(sender_email)
 
         for _, row in final_df.iterrows():
             to_email = row["email"]
             subject = row["subject"]
             body = row["body"]
 
-            logger.info(f"Sending email to {to_email} from {default_sender}")
+            logger.info(f"Sending email to {to_email} from {sender_email}")
             result = send_email(to_email, subject, body, client_token_data)
-
-
 
             if result["status"] == "success":
                 logger.info(f"✅ Email sent to {to_email}")
