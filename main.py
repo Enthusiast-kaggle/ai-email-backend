@@ -971,6 +971,7 @@ import logging
 router = APIRouter()
 logger = logging.getLogger("uvicorn")
 
+
 @router.post("/ab-test")
 async def ab_test(request: Request):
     try:
@@ -991,10 +992,10 @@ async def ab_test(request: Request):
         logger.info("CSV loaded into DataFrame.")
 
         # Required columns
-        required_cols = ["email", "subject(1)", "body(1)", "subject(2)", "body(2)"]
+        required_cols = ["email", "subject(1)", "body(1)", "subject(2)", "body(2)", "sender_email"]
         if not all(col in df.columns for col in required_cols):
             return {
-                "error": "Missing required columns. Sheet must have: email, subject(1), body(1), subject(2), body(2)"
+                "error": "Missing required columns. Sheet must have: email, subject(1), body(1), subject(2), body(2), sender_email"
             }
 
         # Shuffle & split
@@ -1012,13 +1013,34 @@ async def ab_test(request: Request):
         df_b["subject"] = df_b["subject(2)"]
         df_b["body"] = df_b["body(2)"]
 
-        final_df = pd.concat([df_a[["email", "subject", "body"]], df_b[["email", "subject", "body"]]])
+        final_df = pd.concat([df_a[["email", "subject", "body", "sender_email"]], df_b[["email", "subject", "body", "sender_email"]]])
+
+        # ✅ Send Emails
+        from utils.email_utils import send_email  # use your actual import path
+
+        success_count = 0
+        failure_count = 0
+
+        for _, row in final_df.iterrows():
+            to_email = row["email"]
+            subject = row["subject"]
+            body = row["body"]
+            sender_email = row["sender_email"]
+
+            result = await send_email(sender_email, to_email, subject, body)
+            if result["status"] == "success":
+                success_count += 1
+            else:
+                failure_count += 1
+                logger.warning(f"Failed to send to {to_email}: {result.get('error')}")
 
         return {
             "total_emails": len(final_df),
             "group_a_count": len(df_a),
             "group_b_count": len(df_b),
-            "status": "success"
+            "sent": success_count,
+            "failed": failure_count,
+            "status": "A/B test campaign executed"
         }
 
     except Exception as e:
