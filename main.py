@@ -1041,7 +1041,7 @@ async def ab_test(data: ABTestRequest):
             body = row["body"]
 
             logger.info(f"Sending email to {to_email} from {default_sender}")
-            result = await send_email(default_sender, to_email, subject, body)
+            result = send_email(default_sender, to_email, subject, body)
 
             if result["status"] == "success":
                 logger.info(f"✅ Email sent to {to_email}")
