@@ -972,7 +972,7 @@ router = APIRouter()
 logger = logging.getLogger("uvicorn")
 
 
-@router.post("/ab-test")
+@app.post("/ab-test")
 async def ab_test(request: Request):
     try:
         data = await request.json()
