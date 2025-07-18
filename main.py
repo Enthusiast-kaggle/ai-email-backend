@@ -935,74 +935,61 @@ def get_campaign_report():
 
 class ABTestRequest(BaseModel):
     sheet_url: str
-from fastapi import APIRouter, UploadFile, File, Form
+
+from fastapi import APIRouter, Request
 import pandas as pd
 import random
+import requests
 import io
 import logging
 
 router = APIRouter()
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("ab_test")
+logger = logging.getLogger("uvicorn")
 
 @router.post("/ab-test")
-async def ab_test(sheet: UploadFile = File(...), client_email: str = Form(...)):
+async def ab_test(request: Request):
     try:
-        logger.info("Received request for A/B test.")
-        logger.info(f"Client Email: {client_email}")
-        logger.info(f"Uploaded file: {sheet.filename}")
+        data = await request.json()
+        sheet_url = data.get("sheet_url")
+        if not sheet_url:
+            return {"error": "sheet_url is required in the JSON body."}
+        
+        logger.info(f"Received A/B test request for sheet URL: {sheet_url}")
 
-        # Step 1: Read file
-        contents = await sheet.read()
-        logger.info("File read into memory.")
+        # Download CSV from sheet_url
+        response = requests.get(sheet_url)
+        if response.status_code != 200:
+            return {"error": "Failed to download CSV from provided URL."}
+        
+        contents = response.content
         df = pd.read_csv(io.BytesIO(contents))
         logger.info("CSV loaded into DataFrame.")
 
-        # Step 2: Check required columns
+        # Required columns
         required_cols = ["email", "subject(1)", "body(1)", "subject(2)", "body(2)"]
-        logger.info(f"Columns in sheet: {list(df.columns)}")
         if not all(col in df.columns for col in required_cols):
-            error_msg = "Missing required columns. Sheet must have: email, subject(1), body(1), subject(2), body(2)"
-            logger.error(error_msg)
-            return {"error": error_msg}
+            return {
+                "error": "Missing required columns. Sheet must have: email, subject(1), body(1), subject(2), body(2)"
+            }
 
-        # Step 3: Shuffle and split
+        # Shuffle & split
         emails = df["email"].tolist()
-        logger.info(f"Total emails found: {len(emails)}")
         random.shuffle(emails)
         half = len(emails) // 2
         group_a = emails[:half]
         group_b = emails[half:]
-        logger.info(f"Group A count: {len(group_a)}")
-        logger.info(f"Group B count: {len(group_b)}")
 
-        # Step 4: Create group DataFrames
         df_a = df[df["email"].isin(group_a)].copy()
         df_b = df[df["email"].isin(group_b)].copy()
-        logger.info("Created DataFrames for A and B groups.")
 
-        # Step 5: Add final subject/body columns
         df_a["subject"] = df_a["subject(1)"]
         df_a["body"] = df_a["body(1)"]
         df_b["subject"] = df_b["subject(2)"]
         df_b["body"] = df_b["body(2)"]
-        logger.info("Mapped subject/body for both groups.")
 
-        # Step 6: Combine for final output
-        final_df = pd.concat([
-            df_a[["email", "subject", "body"]],
-            df_b[["email", "subject", "body"]]
-        ])
-        logger.info(f"Final A/B test DataFrame prepared. Total rows: {len(final_df)}")
+        final_df = pd.concat([df_a[["email", "subject", "body"]], df_b[["email", "subject", "body"]]])
 
-        # Optional: Log few rows
-        logger.debug(f"Sample Output:\n{final_df.head()}")
-
-        # Final step: Return response
         return {
-            "client_email": client_email,
             "total_emails": len(final_df),
             "group_a_count": len(df_a),
             "group_b_count": len(df_b),
@@ -1010,7 +997,7 @@ async def ab_test(sheet: UploadFile = File(...), client_email: str = Form(...)):
         }
 
     except Exception as e:
-        logger.exception("Error during A/B test execution.")
+        logger.exception("Error during A/B test processing")
         return {"error": str(e)}
 
 @app.get("/")
