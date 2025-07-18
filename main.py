@@ -476,9 +476,6 @@ def save_client_token(email, token_dict):
     conn.close()
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-TOKEN_DB = os.path.join(BASE_DIR, "token_db", "tokens.db")
-
 def load_client_token(email):
     print(f"📂 Using DB: {TOKEN_DB}")  # Debug print
     print(f"🔐 Saving token to: {TOKEN_DB}")
