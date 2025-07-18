@@ -23,7 +23,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import json
-
+import re
 from threading import Lock
 state_lock = Lock()
 
@@ -971,6 +971,12 @@ import logging
 router = APIRouter()
 logger = logging.getLogger("uvicorn")
 
+def convert_to_csv_url(sheet_url: str) -> str:
+    match = re.search(r"/spreadsheets/d/([a-zA-Z0-9-_]+)", sheet_url)
+    if not match:
+        raise ValueError("Invalid Google Sheet URL format.")
+    sheet_id = match.group(1)
+    return f"https://docs.google.com/spreadsheets/d/{sheet_id}/export?format=csv"
 
 @app.post("/ab-test")
 async def ab_test(request: Request):
@@ -982,11 +988,15 @@ async def ab_test(request: Request):
         
         logger.info(f"Received A/B test request for sheet URL: {sheet_url}")
 
-        # Download CSV from sheet_url
-        response = requests.get(sheet_url)
+        # Convert to CSV download URL
+        csv_url = convert_to_csv_url(sheet_url)
+
+        # Download CSV from Google Sheets
+        response = requests.get(csv_url)
+
         if response.status_code != 200:
-            return {"error": "Failed to download CSV from provided URL."}
-        
+             return {"error": "Failed to download CSV from provided URL."}
+
         contents = response.content
         df = pd.read_csv(io.BytesIO(contents))
         logger.info("CSV loaded into DataFrame.")
