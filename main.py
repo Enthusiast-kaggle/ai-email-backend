@@ -305,6 +305,7 @@ TOKEN_DB = os.path.join(BASE_DIR, "token_store.db")
 
 def init_token_db():
     conn = sqlite3.connect(TOKEN_DB)
+    print(f"📂 init_token_db using: {os.path.abspath(TOKEN_DB)}")
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tokens (
@@ -464,7 +465,7 @@ def save_client_token(email, token_dict):
 def load_client_token(email):
     conn = sqlite3.connect(TOKEN_DB)
     cursor = conn.cursor()
-
+    print(f"📂 load_client_token using: {os.path.abspath(TOKEN_DB)}")
     cursor.execute("SELECT * FROM tokens WHERE email = ?", (email,))
     row = cursor.fetchone()
     conn.close()
