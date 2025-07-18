@@ -486,6 +486,8 @@ def load_client_token(email):
         "scopes": json.loads(row[6]),
         "expiry": row[7],
     }
+    print(f"📂 Connecting to DB at: {TOKEN_DB}")
+
     return token_dict
     
 def send_email(recipient, subject, body, client_token_data: dict):
