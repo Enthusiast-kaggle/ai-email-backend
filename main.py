@@ -533,10 +533,11 @@ def send_email(recipient, subject, body, client_token_data: dict):
 
         print(f"✅ Email sent to {recipient}")
         log_email(email_id, recipient, subject)
+        return {"status": "success", "email_id": email_id, "recipient": recipient}
 
     except Exception as e:
         print(f"❌ Error sending email: {e}")
-
+        return {"status": "error", "error": str(e), "recipient": recipient}
 
 # Load environment variables
 load_dotenv()
