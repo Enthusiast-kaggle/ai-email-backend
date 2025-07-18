@@ -936,28 +936,38 @@ def get_campaign_report():
 class ABTestRequest(BaseModel):
     sheet_url: str
 
+import csv
+import io
+from fastapi import UploadFile, File, Form
 
 @app.post("/ab-test")
-def ab_test(data: ABTestRequest):
-    sheet_url = data.sheet_url.replace("/edit#gid=", "/export?format=csv&gid=")
-
+async def ab_test_endpoint(sheet: UploadFile = File(...), client_email: str = Form(...)):
     try:
-        response = requests.get(sheet_url)
-        decoded = response.content.decode("utf-8")
-        lines = list(csv.reader(decoded.splitlines()))
-        headers = lines[0]
-        rows = lines[1:]
+        # Load client token
+        client_token = get_token(client_email)
+        if not client_token:
+            return {"status": "error", "message": "Client not authenticated."}
 
-        expected_headers = ["Email", "Subject(1)", "Body(1)", "Subject(2)", "Body(2)"]
-        if headers[:5] != expected_headers:
-            return {"error": f"Sheet must contain columns in this exact order: {expected_headers}. Found: {headers}"}
+        contents = await sheet.read()
+        decoded = contents.decode("utf-8")
+        reader = csv.reader(io.StringIO(decoded))
+        headers = next(reader, None)
+        rows = list(reader)
 
+        required_headers = ["email", "subject(1)", "body(1)", "subject(2)", "body(2)"]
+        if not headers or any(h not in headers for h in required_headers):
+            return {
+                "status": "error",
+                "message": f"Invalid sheet format. Required headers: {', '.join(required_headers)}",
+                "received_headers": headers
+            }
 
-        try:
-            client_token = get_latest_token()
-            sender_email = get_user_email_from_token(client_token)
-        except Exception as e:
-            return {"error": f"Failed to load latest token or extract sender email: {e}"}
+        # Get index of each column (in case they are in different order)
+        email_idx = headers.index("email")
+        subject1_idx = headers.index("subject(1)")
+        body1_idx = headers.index("body(1)")
+        subject2_idx = headers.index("subject(2)")
+        body2_idx = headers.index("body(2)")
 
         group_a = []
         group_b = []
@@ -966,38 +976,54 @@ def ab_test(data: ABTestRequest):
             if len(row) < 5:
                 continue
 
-            email = row[0]
-            subject_a = row[1]
-            body_a = row[2]
-            subject_b = row[3]
-            body_b = row[4]
+            try:
+                email = row[email_idx].strip()
+                subject_1 = row[subject1_idx].strip()
+                body_1 = row[body1_idx].strip()
+                subject_2 = row[subject2_idx].strip()
+                body_2 = row[body2_idx].strip()
+            except IndexError:
+                continue  # Skip rows with missing values
 
             if random.choice([True, False]):
-                group_a.append({"email": email, "subject": subject_a, "body": body_a})
+                group_a.append({"email": email, "subject": subject_1, "body": body_1})
             else:
-                group_b.append({"email": email, "subject": subject_b, "body": body_b})
+                group_b.append({"email": email, "subject": subject_2, "body": body_2})
 
+        print(f"Parsed {len(rows)} rows from sheet.")
+        print("Group A Users:", [u["email"] for u in group_a])
+        print("Group B Users:", [u["email"] for u in group_b])
+
+        # Send emails to Group A
         for user in group_a:
-            send_email(user["email"], user["subject"], user["body"], client_token_data=client_token)
+            try:
+                send_email(user["email"], user["subject"], user["body"], client_token_data=client_token)
+                print(f"✅ Email sent to Group A: {user['email']}")
+            except Exception as e:
+                print(f"❌ Failed to send Group A email to {user['email']}: {e}")
 
+        # Send emails to Group B
         for user in group_b:
-            send_email(user["email"], user["subject"], user["body"], client_token_data=client_token)
+            try:
+                send_email(user["email"], user["subject"], user["body"], client_token_data=client_token)
+                print(f"✅ Email sent to Group B: {user['email']}")
+            except Exception as e:
+                print(f"❌ Failed to send Group B email to {user['email']}: {e}")
 
         return {
             "status": "success",
-            "sender_email": sender_email,
+            "message": f"Emails sent to {len(group_a)} Group A users and {len(group_b)} Group B users.",
             "group_a_count": len(group_a),
-            "group_b_count": len(group_b),
-            "group_a_emails": [u["email"] for u in group_a],
-            "group_b_emails": [u["email"] for u in group_b],
+            "group_b_count": len(group_b)
         }
 
     except Exception as e:
-        return {"error": str(e)}
-
-    print("Group A:", group_a)
-    print("Group B:", group_b)
-
+        print("❌ AB Test Error:", e)
+        return {
+            "status": "error",
+            "message": "An error occurred while processing A/B test.",
+            "details": str(e)
+        }
 
 @app.get("/")
 def root():
