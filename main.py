@@ -935,80 +935,83 @@ def get_campaign_report():
 
 class ABTestRequest(BaseModel):
     sheet_url: str
-import csv
+from fastapi import APIRouter, UploadFile, File, Form
+import pandas as pd
 import random
 import io
-from fastapi import UploadFile, File, Form
+import logging
 
-@app.post("/ab-test")
-async def ab_test_endpoint(sheet: UploadFile = File(...), client_email: str = Form(...)):
+router = APIRouter()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("ab_test")
+
+@router.post("/ab-test")
+async def ab_test(sheet: UploadFile = File(...), client_email: str = Form(...)):
     try:
-        # Load client token
-        client_token = get_token(client_email)
-        if not client_token:
-            return {"status": "error", "message": "Client not authenticated."}
+        logger.info("Received request for A/B test.")
+        logger.info(f"Client Email: {client_email}")
+        logger.info(f"Uploaded file: {sheet.filename}")
 
+        # Step 1: Read file
         contents = await sheet.read()
-        decoded = contents.decode("utf-8")
-        reader = csv.reader(io.StringIO(decoded))
-        headers = next(reader, None)
-        rows = list(reader)
+        logger.info("File read into memory.")
+        df = pd.read_csv(io.BytesIO(contents))
+        logger.info("CSV loaded into DataFrame.")
 
-        required_headers = ["email", "subject(1)", "body(1)", "subject(2)", "body(2)"]
-        if not headers or any(h not in headers for h in required_headers):
-            return {"status": "error", "message": f"Invalid sheet format. Required headers: {', '.join(required_headers)}"}
+        # Step 2: Check required columns
+        required_cols = ["email", "subject(1)", "body(1)", "subject(2)", "body(2)"]
+        logger.info(f"Columns in sheet: {list(df.columns)}")
+        if not all(col in df.columns for col in required_cols):
+            error_msg = "Missing required columns. Sheet must have: email, subject(1), body(1), subject(2), body(2)"
+            logger.error(error_msg)
+            return {"error": error_msg}
 
-        # Map indexes based on header names
-        email_idx = headers.index("email")
-        subject1_idx = headers.index("subject(1)")
-        body1_idx = headers.index("body(1)")
-        subject2_idx = headers.index("subject(2)")
-        body2_idx = headers.index("body(2)")
+        # Step 3: Shuffle and split
+        emails = df["email"].tolist()
+        logger.info(f"Total emails found: {len(emails)}")
+        random.shuffle(emails)
+        half = len(emails) // 2
+        group_a = emails[:half]
+        group_b = emails[half:]
+        logger.info(f"Group A count: {len(group_a)}")
+        logger.info(f"Group B count: {len(group_b)}")
 
-        group_a = []
-        group_b = []
+        # Step 4: Create group DataFrames
+        df_a = df[df["email"].isin(group_a)].copy()
+        df_b = df[df["email"].isin(group_b)].copy()
+        logger.info("Created DataFrames for A and B groups.")
 
-        for row in rows:
-            try:
-                email = row[email_idx].strip()
-                subject1 = row[subject1_idx].strip()
-                body1 = row[body1_idx].strip()
-                subject2 = row[subject2_idx].strip()
-                body2 = row[body2_idx].strip()
-            except IndexError:
-                continue  # Skip invalid rows
+        # Step 5: Add final subject/body columns
+        df_a["subject"] = df_a["subject(1)"]
+        df_a["body"] = df_a["body(1)"]
+        df_b["subject"] = df_b["subject(2)"]
+        df_b["body"] = df_b["body(2)"]
+        logger.info("Mapped subject/body for both groups.")
 
-            if random.choice([True, False]):
-                group_a.append({"email": email, "subject": subject1, "body": body1})
-            else:
-                group_b.append({"email": email, "subject": subject2, "body": body2})
+        # Step 6: Combine for final output
+        final_df = pd.concat([
+            df_a[["email", "subject", "body"]],
+            df_b[["email", "subject", "body"]]
+        ])
+        logger.info(f"Final A/B test DataFrame prepared. Total rows: {len(final_df)}")
 
-        # Send to Group A
-        for user in group_a:
-            try:
-                send_email(user["email"], user["subject"], user["body"], client_token_data=client_token)
-                print(f"✅ Sent A to {user['email']}")
-            except Exception as e:
-                print(f"❌ Failed A to {user['email']}: {e}")
+        # Optional: Log few rows
+        logger.debug(f"Sample Output:\n{final_df.head()}")
 
-        # Send to Group B
-        for user in group_b:
-            try:
-                send_email(user["email"], user["subject"], user["body"], client_token_data=client_token)
-                print(f"✅ Sent B to {user['email']}")
-            except Exception as e:
-                print(f"❌ Failed B to {user['email']}: {e}")
-
+        # Final step: Return response
         return {
-            "status": "success",
-            "message": f"Emails sent to {len(group_a)} Group A and {len(group_b)} Group B users.",
-            "group_a_count": len(group_a),
-            "group_b_count": len(group_b)
+            "client_email": client_email,
+            "total_emails": len(final_df),
+            "group_a_count": len(df_a),
+            "group_b_count": len(df_b),
+            "status": "success"
         }
 
     except Exception as e:
-        print("❌ AB Test Error:", e)
-        return {"status": "error", "message": "An error occurred while processing A/B test.", "details": str(e)}
+        logger.exception("Error during A/B test execution.")
+        return {"error": str(e)}
 
 @app.get("/")
 def root():
