@@ -948,8 +948,10 @@ def ab_test(data: ABTestRequest):
         headers = lines[0]
         rows = lines[1:]
 
-        if len(headers) < 5:
-            return {"error": "Sheet must contain: Email, Subject A, Body A, Subject B, Body B"}
+        expected_headers = ["Email", "Subject(1)", "Body(1)", "Subject(2)", "Body(2)"]
+        if headers[:5] != expected_headers:
+            return {"error": f"Sheet must contain columns in this exact order: {expected_headers}. Found: {headers}"}
+
 
         try:
             client_token = get_latest_token()
@@ -992,6 +994,10 @@ def ab_test(data: ABTestRequest):
 
     except Exception as e:
         return {"error": str(e)}
+
+    print("Group A:", group_a)
+    print("Group B:", group_b)
+
 
 @app.get("/")
 def root():
