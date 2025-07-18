@@ -50,34 +50,36 @@ from fastapi.responses import StreamingResponse
 import os
 import sqlite3
 
-# ✅ Use /tmp — guaranteed writable in Render and all cloud environments
-TOKEN_DB = "/tmp/token_store.db"
+import sqlite3
+
+
+# Absolute DB path
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TOKEN_DB = os.path.join(BASE_DIR, "tokens.db")
 
 def init_token_db():
-    print(f"📂 init_token_db using: {os.path.abspath(TOKEN_DB)}")
-    try:
-        conn = sqlite3.connect(TOKEN_DB)
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS tokens (
-                email TEXT PRIMARY KEY,
-                token TEXT,
-                refresh_token TEXT,
-                token_uri TEXT,
-                client_id TEXT,
-                client_secret TEXT,
-                scopes TEXT,
-                expiry TEXT
-            )
-        """)
-        conn.commit()
-        conn.close()
-        print("✅ Token DB initialized successfully.")
-    except Exception as e:
-        print(f"❌ Failed to initialize token DB: {e}")
+    print(f"📂 Initializing DB at: {TOKEN_DB}")
+    conn = sqlite3.connect(TOKEN_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tokens (
+            email TEXT PRIMARY KEY,
+            token TEXT,
+            refresh_token TEXT,
+            token_uri TEXT,
+            client_id TEXT,
+            client_secret TEXT,
+            scopes TEXT,
+            expiry TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+    print("✅ Token DB initialized.")
 
-# ✅ Ensure DB is initialized on app start
+# Always call at app startup
 init_token_db()
+
 import io
 app = FastAPI()
 
