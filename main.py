@@ -634,11 +634,22 @@ def get_latest_token():
     }
     return token_dict
 
+from google.oauth2.credentials import Credentials
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+
 def get_user_email_from_token(creds_dict):
     creds = Credentials.from_authorized_user_info(creds_dict)
+
+    # Automatically refresh if token is expired
+    if creds.expired and creds.refresh_token:
+        creds.refresh(Request())
+
+    # Build the service
     service = build('oauth2', 'v2', credentials=creds)
     user_info = service.userinfo().get().execute()
     return user_info['email']
+
 
 def generate_email_with_ai(prompt: str, tone: str) -> str:
     full_prompt = f"Generate an email in a {tone} tone with the following content:\n\n{prompt}"
@@ -979,16 +990,23 @@ def convert_to_csv_url(sheet_url):
         
 from fastapi import Request
 
+from google.oauth2.credentials import Credentials
+
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest, request: Request):
     try:
         sheet_url = data.sheet_url
         email = "ayushsinghrajput55323@gmail.com"
+
         debug_show_all_tokens()
         client_token_data = load_client_token(email)
+        creds = Credentials.from_authorized_user_info(client_token_data)
+        sender_email = get_user_email_from_token(client_token_data)
 
-        sender_email = get_user_email_from_token(client_token_data) # Replace with actual sender logic
- 
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())  # You may need google.auth.transport.requests.Request()
+            save_token_to_db(sender_email, creds.to_json())
+
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
         print("Received A/B test data:", data.dict())
 
@@ -1003,7 +1021,6 @@ async def ab_test(data: ABTestRequest, request: Request):
         contents = response.content
         df = pd.read_csv(io.BytesIO(contents))
         df.columns = df.columns.str.strip().str.lower()
-        df = df.copy()
 
         required_columns = {"email", "subject(1)", "body(1)", "subject(2)", "body(2)"}
         if not required_columns.issubset(df.columns):
@@ -1011,7 +1028,6 @@ async def ab_test(data: ABTestRequest, request: Request):
             return {"error": f"Missing required columns: {', '.join(missing)}"}
 
         df["email"] = df["email"].astype(str).str.strip()
-
         emails = df["email"].tolist()
         random.shuffle(emails)
         midpoint = len(emails) // 2
@@ -1025,12 +1041,16 @@ async def ab_test(data: ABTestRequest, request: Request):
 
         success_count = 0
         failure_count = 0
-        client_token_data = load_client_token(sender_email)
 
         for _, row in final_df.iterrows():
             to_email = row["email"]
             subject = row["subject"]
             body = row["body"]
+
+            if not to_email or not subject or not body:
+                logger.warning(f"Skipping malformed row: {row}")
+                failure_count += 1
+                continue
 
             logger.info(f"Sending email to {to_email} from {sender_email}")
             result = send_email(to_email, subject, body, client_token_data)
