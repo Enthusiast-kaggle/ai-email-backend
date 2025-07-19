@@ -1003,7 +1003,7 @@ async def ab_test(data: ABTestRequest, request: Request):
         def convert_to_csv_url(sheet_url: str) -> str:
             logger.info("🔧 Converting sheet URL to CSV URL...")
             if "docs.google.com" in sheet_url and "/edit" in sheet_url:
-                csv = sheet_url.replace("/edit", "/export?format=csv")
+                csv = sheet_url.replace('/edit?usp=sharing', '/export?format=csv')
                 logger.info(f"✅ Converted CSV URL: {csv}")
                 return csv
             logger.warning("❌ Invalid Google Sheet URL format")
