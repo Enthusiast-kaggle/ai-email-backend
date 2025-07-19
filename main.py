@@ -988,25 +988,17 @@ def convert_to_csv_url(sheet_url):
     else:
         return None
         
-from fastapi import Request
 
 from google.oauth2.credentials import Credentials
-
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest, request: Request):
     try:
         sheet_url = data.sheet_url
-        email = data.user_email  # Include this in ABTestRequest model
-
+        email = data.user_email  # Ensure this is in ABTestRequest model
 
         debug_show_all_tokens()
         client_token_data = load_client_token(email)
-        creds = Credentials.from_authorized_user_info(client_token_data)
         sender_email = get_user_email_from_token(client_token_data)
-
-        if creds.expired and creds.refresh_token:
-            creds.refresh(GoogleRequest())  # You may need google.auth.transport.requests.Request()
-            save_token_to_db(sender_email, creds.to_json())
 
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
         print("Received A/B test data:", data.dict())
