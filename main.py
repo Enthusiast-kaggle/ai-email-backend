@@ -1011,9 +1011,10 @@ async def ab_test(data: ABTestRequest, request: Request):
         response = requests.get(csv_url)
         if response.status_code != 200:
             return {"error": "Failed to download CSV from provided URL."}
+        print("📄 CSV Columns:", df.columns.tolist())
 
         df = pd.read_csv(io.BytesIO(response.content))
-        df.columns = df.columns.str.strip().st
+        df.columns = df.columns.str.strip().str.lower()
 
         required_columns = {"email", "subject(1)", "body(1)", "subject(2)", "body(2)"}
         if not required_columns.issubset(df.columns):
@@ -1036,6 +1037,7 @@ async def ab_test(data: ABTestRequest, request: Request):
         token = load_client_token(user_email)
         print("📦 Loaded token:", token)
         if not token:
+            print("❌ Token not found for:", user_email)
             return JSONResponse(status_code=400, content={"error": "Could not fetch token for user email."})
 
         # --- Step 4: Send Emails ---
