@@ -989,15 +989,16 @@ def convert_to_csv_url(sheet_url):
         
 
 from google.oauth2.credentials import Credentials
+
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest, request: Request):
     try:
         sheet_url = data.sheet_url
-        client_token_data = data.client_token_data  # Make sure this is sent from frontend
-        logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
+        user_email = data.user_email  # This will be used to fetch token internally
+        logger.info(f"Received A/B test request with sheet URL: {sheet_url} for user: {user_email}")
         print("Received A/B test data:", data.dict())
 
-        # Convert Google Sheet URL to CSV format
+        # --- Step 1: Convert to CSV ---
         def convert_to_csv_url(sheet_url: str) -> str:
             if "docs.google.com" in sheet_url and "/edit" in sheet_url:
                 return sheet_url.replace("/edit", "/export?format=csv")
@@ -1014,23 +1015,29 @@ async def ab_test(data: ABTestRequest, request: Request):
         df = pd.read_csv(io.BytesIO(response.content))
         df.columns = df.columns.str.strip().str.lower()
 
-        required_columns = {"email", "subject(1)", "body(1)", "subject(2)", "body(2)"}
+        required_columns = {"Email", "Subject(1)", "Body(1)", "Subject(2)", "Body(2)"}
         if not required_columns.issubset(df.columns):
             missing = required_columns - set(df.columns)
             return {"error": f"Missing required columns: {', '.join(missing)}"}
 
+        # --- Step 2: Split into A and B groups ---
         df["email"] = df["email"].astype(str).str.strip()
-        emails = df["email"].tolist()
+        emails = df["email"].dropna().unique().tolist()
         random.shuffle(emails)
         midpoint = len(emails) // 2
         group_a = set(emails[:midpoint])
-        df["group"] = df["email"].apply(lambda e: "A" if e in group_a else "B")
 
+        df["group"] = df["email"].apply(lambda e: "A" if e in group_a else "B")
         df["subject"] = df.apply(lambda row: row["subject(1)"] if row["group"] == "A" else row["subject(2)"], axis=1)
         df["body"] = df.apply(lambda row: row["body(1)"] if row["group"] == "A" else row["body(2)"], axis=1)
-
         final_df = df[["email", "subject", "body"]]
 
+        # --- Step 3: Fetch token using user_email ---
+        token = load_client_token(user_email)
+        if not token:
+            return JSONResponse(status_code=400, content={"error": "Could not fetch token for user email."})
+
+        # --- Step 4: Send Emails ---
         success_count = 0
         failure_count = 0
 
@@ -1044,7 +1051,7 @@ async def ab_test(data: ABTestRequest, request: Request):
                 failure_count += 1
                 continue
 
-            result = send_email(to_email, subject, body, client_token_data)
+            result = send_email(to_email, subject, body, token)
             if result["status"] == "success":
                 success_count += 1
             else:
