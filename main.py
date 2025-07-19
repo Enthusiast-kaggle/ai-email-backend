@@ -635,7 +635,6 @@ def get_latest_token():
     return token_dict
 
 from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
 def get_user_email_from_token(creds_dict):
