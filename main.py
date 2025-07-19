@@ -1011,11 +1011,11 @@ async def ab_test(data: ABTestRequest, request: Request):
         response = requests.get(csv_url)
         if response.status_code != 200:
             return {"error": "Failed to download CSV from provided URL."}
-        print("📄 CSV Columns:", df.columns.tolist())
+        
 
         df = pd.read_csv(io.BytesIO(response.content))
         df.columns = df.columns.str.strip().str.lower()
-
+        print("📄 CSV Columns:", df.columns.tolist())
         required_columns = {"email", "subject(1)", "body(1)", "subject(2)", "body(2)"}
         if not required_columns.issubset(df.columns):
             missing = required_columns - set(df.columns)
@@ -1032,6 +1032,7 @@ async def ab_test(data: ABTestRequest, request: Request):
         df["subject"] = df.apply(lambda row: row["subject(1)"] if row["group"] == "A" else row["subject(2)"], axis=1)
         df["body"] = df.apply(lambda row: row["body(1)"] if row["group"] == "A" else row["body(2)"], axis=1)
         final_df = df[["email", "subject", "body"]]
+        print("🧪 Final DataFrame preview:\n", final_df.head())
 
         # --- Step 3: Fetch token using user_email ---
         token = load_client_token(user_email)
