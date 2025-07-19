@@ -553,26 +553,11 @@ scheduler = BackgroundScheduler()
 scheduler.start()
 
 # Paths
+@app.get("/download-tokens-db")
+def download_db():
+    from fastapi.responses import FileResponse
+    return FileResponse("tokens.db", media_type='application/octet-stream', filename="tokens.db")
 
-
-# --- Utility to load token from DB (reused) ---
-def load_client_token(email):
-    conn = sqlite3.connect("tokens.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM tokens WHERE email = ?", (email,))
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        raise FileNotFoundError(f"No token found for {email}")
-    return {
-        "token": row[1],
-        "refresh_token": row[2],
-        "token_uri": row[3],
-        "client_id": row[4],
-        "client_secret": row[5],
-        "scopes": json.loads(row[6]),
-        "expiry": row[7],
-    }
 
 def load_state():
     try:
