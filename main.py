@@ -993,40 +993,59 @@ from google.oauth2.credentials import Credentials
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest, request: Request):
     try:
+        logger.info("🔵 A/B test endpoint called.")
         sheet_url = data.sheet_url
         user_email = data.user_email
-        logger.info(f"Received A/B test request with sheet URL: {sheet_url} for user: {user_email}")
-        print("Received A/B test data:", data.dict())
+        logger.info(f"🟡 Received A/B test request with sheet URL: {sheet_url} for user: {user_email}")
+        print("🟡 Received A/B test data:", data.dict())
 
         # --- Step 1: Convert to CSV ---
         def convert_to_csv_url(sheet_url: str) -> str:
+            logger.info("🔧 Converting sheet URL to CSV URL...")
             if "docs.google.com" in sheet_url and "/edit" in sheet_url:
-                return sheet_url.replace("/edit", "/export?format=csv")
+                csv = sheet_url.replace("/edit", "/export?format=csv")
+                logger.info(f"✅ Converted CSV URL: {csv}")
+                return csv
+            logger.warning("❌ Invalid Google Sheet URL format")
             return None
 
         csv_url = convert_to_csv_url(sheet_url)
         if not csv_url:
+            logger.error("❌ CSV URL conversion failed.")
             return {"error": "Invalid Google Sheet URL format."}
 
+        logger.info("📥 Downloading CSV data from URL...")
         response = requests.get(csv_url)
+        logger.info(f"📡 Response status code: {response.status_code}")
         if response.status_code != 200:
+            logger.error("❌ Failed to fetch CSV from Google Sheets.")
             return {"error": "Failed to download CSV from provided URL."}
 
+        logger.info("🧾 Reading CSV into DataFrame...")
         df = pd.read_csv(io.BytesIO(response.content))
+        logger.info("✅ CSV successfully read into DataFrame.")
+
         df.columns = df.columns.str.strip().str.lower()
         print("📄 CSV Columns:", df.columns.tolist())
+        logger.info(f"📊 Cleaned Columns: {df.columns.tolist()}")
 
         required_columns = {"email", "subject(1)", "body(1)", "subject(2)", "body(2)"}
         if not required_columns.issubset(df.columns):
             missing = required_columns - set(df.columns)
+            logger.error(f"❌ Missing required columns: {missing}")
             return {"error": f"Missing required columns: {', '.join(missing)}"}
+
+        logger.info("✅ Required columns found, proceeding to split groups.")
 
         # --- Step 2: Split into A and B groups ---
         df["email"] = df["email"].astype(str).str.strip()
         emails = df["email"].dropna().unique().tolist()
+        logger.info(f"📧 Unique cleaned emails count: {len(emails)}")
+
         random.shuffle(emails)
         midpoint = len(emails) // 2
         group_a = set(emails[:midpoint])
+        logger.info(f"🅰️ Group A size: {len(group_a)}, 🅱️ Group B size: {len(emails) - len(group_a)}")
 
         df["group"] = df["email"].apply(lambda e: "A" if e in group_a else "B")
         df["subject"] = df.apply(lambda row: row["subject(1)"] if row["group"] == "A" else row["subject(2)"], axis=1)
@@ -1034,22 +1053,28 @@ async def ab_test(data: ABTestRequest, request: Request):
 
         final_df = df[["email", "subject", "body"]]
         print("🧪 Final DataFrame preview:\n", final_df.head())
+        logger.info("✅ Final email data prepared.")
 
         # Drop invalid rows
         final_df.dropna(subset=["email", "subject", "body"], inplace=True)
+        logger.info(f"✅ Rows after dropna: {len(final_df)}")
 
         # --- Step 3: Fetch token using user_email ---
+        logger.info("🔐 Loading Gmail token for user...")
         token = load_client_token(user_email)
         print("📦 Loaded token:", token)
         if not token:
             print("❌ Token not found for:", user_email)
+            logger.error("❌ No token found for user.")
             return JSONResponse(status_code=400, content={"error": "Could not fetch token for user email."})
 
         # --- Step 4: Send Emails ---
+        logger.info("📤 Starting to send emails...")
         success_count = 0
         failure_count = 0
 
-        for _, row in final_df.iterrows():
+        for index, row in final_df.iterrows():
+            print(f"📤 Loop {index} — Email: {row['email']}")
             to_email = row["email"]
             subject = row["subject"]
             body = row["body"]
@@ -1067,9 +1092,10 @@ async def ab_test(data: ABTestRequest, request: Request):
             if result["status"] == "success":
                 success_count += 1
             else:
-                logger.warning(f"Failed to send email to {to_email}: {result.get('error')}")
+                logger.warning(f"❌ Failed to send email to {to_email}: {result.get('error')}")
                 failure_count += 1
 
+        logger.info("✅ Email sending loop completed.")
         return JSONResponse(content={
             "status": "completed",
             "success": success_count,
@@ -1077,7 +1103,7 @@ async def ab_test(data: ABTestRequest, request: Request):
         })
 
     except Exception as e:
-        logger.exception("Unhandled error during A/B test execution")
+        logger.exception("❗ Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
 
 
