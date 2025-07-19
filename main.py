@@ -993,6 +993,7 @@ from google.oauth2.credentials import Credentials
 async def ab_test(data: ABTestRequest, request: Request):
     try:
         sheet_url = data.sheet_url
+        client_token_data = data.client_token_data  # Make sure this is sent from frontend
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
         print("Received A/B test data:", data.dict())
 
@@ -1043,9 +1044,12 @@ async def ab_test(data: ABTestRequest, request: Request):
                 failure_count += 1
                 continue
 
-            # Replace this with your actual email sending logic
-            print(f"Simulating sending email to {to_email}:\nSubject: {subject}\nBody: {body[:60]}...\n")
-            success_count += 1  # Simulate success
+            result = send_email(to_email, subject, body, client_token_data)
+            if result["status"] == "success":
+                success_count += 1
+            else:
+                logger.warning(f"Failed to send email to {to_email}: {result.get('error')}")
+                failure_count += 1
 
         return JSONResponse(content={
             "status": "completed",
@@ -1056,6 +1060,7 @@ async def ab_test(data: ABTestRequest, request: Request):
     except Exception as e:
         logger.exception("Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 @app.get("/")
 def root():
     return {"message": "✅ AI Email Assistant Backend is running!"}
