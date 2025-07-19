@@ -1013,9 +1013,9 @@ async def ab_test(data: ABTestRequest, request: Request):
             return {"error": "Failed to download CSV from provided URL."}
 
         df = pd.read_csv(io.BytesIO(response.content))
-        df.columns = df.columns.str.strip().str.lower()
+        df.columns = df.columns.str.strip().st
 
-        required_columns = {"Email", "Subject(1)", "Body(1)", "Subject(2)", "Body(2)"}
+        required_columns = {"email", "subject(1)", "body(1)", "subject(2)", "body(2)"}
         if not required_columns.issubset(df.columns):
             missing = required_columns - set(df.columns)
             return {"error": f"Missing required columns: {', '.join(missing)}"}
@@ -1034,6 +1034,7 @@ async def ab_test(data: ABTestRequest, request: Request):
 
         # --- Step 3: Fetch token using user_email ---
         token = load_client_token(user_email)
+        print("📦 Loaded token:", token)
         if not token:
             return JSONResponse(status_code=400, content={"error": "Could not fetch token for user email."})
 
@@ -1050,8 +1051,10 @@ async def ab_test(data: ABTestRequest, request: Request):
                 logger.warning(f"Skipping malformed row: {row}")
                 failure_count += 1
                 continue
-
+            print(f"📤 Sending email to: {to_email}")  # DEBUG
             result = send_email(to_email, subject, body, token)
+            
+            print(f"📥 Email send result: {result}")  # DEBUG
             if result["status"] == "success":
                 success_count += 1
             else:
