@@ -477,6 +477,16 @@ def save_client_token(email, token_dict):
     conn.commit()
     conn.close()
 
+def debug_show_all_tokens():
+    import sqlite3
+    conn = sqlite3.connect(TOKEN_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT email FROM tokens")
+    rows = cursor.fetchall()
+    print("📬 Emails in token DB:")
+    for row in rows:
+        print(f" - {row[0]}")
+    conn.close()
 
 def load_client_token(email):
     print(f"📂 Using DB: {TOKEN_DB}")  # Debug print
@@ -974,8 +984,9 @@ async def ab_test(data: ABTestRequest, request: Request):
     try:
         sheet_url = data.sheet_url
         email = "ayushsinghrajput55323@gmail.com"
-        # Set your default sender email here (or fetch it from session/db/token)
-        client_token_data = load_client_token(email)  # assumes you determine client identity internally
+        debug_show_all_tokens()
+        client_token_data = load_client_token(email)
+
         sender_email = get_user_email_from_token(client_token_data) # Replace with actual sender logic
  
         logger.info(f"Received A/B test request with sheet URL: {sheet_url}")
