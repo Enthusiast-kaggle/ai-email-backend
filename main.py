@@ -964,18 +964,22 @@ class ABTestRequest(BaseModel):
     
 def get_latest_authenticated_gmail():
     try:
+        print(f"📁 Using token DB: {TOKEN_DB}")
         conn = sqlite3.connect(TOKEN_DB)
         cursor = conn.cursor()
         cursor.execute("SELECT email FROM tokens ORDER BY rowid DESC LIMIT 1")
         result = cursor.fetchone()
+        print("📩 Fetched result:", result)
         conn.close()
         if result:
-            return result[0]  # The email
+            return result[0]
         else:
+            print("⚠️ No email found in tokens DB.")
             return None
     except Exception as e:
         print(f"❌ ERROR reading from token DB: {e}")
         return None
+
 
 from fastapi import APIRouter, Request
 import pandas as pd
