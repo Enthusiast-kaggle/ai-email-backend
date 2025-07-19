@@ -966,7 +966,7 @@ def get_campaign_report():
 
 class ABTestRequest(BaseModel):
     sheet_url: str
-    
+    user_email: str
 
 
 from fastapi import APIRouter, Request
