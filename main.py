@@ -994,7 +994,7 @@ from google.oauth2.credentials import Credentials
 async def ab_test(data: ABTestRequest, request: Request):
     try:
         sheet_url = data.sheet_url
-        user_email = data.user_email  # This will be used to fetch token internally
+        user_email = data.user_email
         logger.info(f"Received A/B test request with sheet URL: {sheet_url} for user: {user_email}")
         print("Received A/B test data:", data.dict())
 
@@ -1011,11 +1011,11 @@ async def ab_test(data: ABTestRequest, request: Request):
         response = requests.get(csv_url)
         if response.status_code != 200:
             return {"error": "Failed to download CSV from provided URL."}
-        
 
         df = pd.read_csv(io.BytesIO(response.content))
         df.columns = df.columns.str.strip().str.lower()
         print("📄 CSV Columns:", df.columns.tolist())
+
         required_columns = {"email", "subject(1)", "body(1)", "subject(2)", "body(2)"}
         if not required_columns.issubset(df.columns):
             missing = required_columns - set(df.columns)
@@ -1031,8 +1031,12 @@ async def ab_test(data: ABTestRequest, request: Request):
         df["group"] = df["email"].apply(lambda e: "A" if e in group_a else "B")
         df["subject"] = df.apply(lambda row: row["subject(1)"] if row["group"] == "A" else row["subject(2)"], axis=1)
         df["body"] = df.apply(lambda row: row["body(1)"] if row["group"] == "A" else row["body(2)"], axis=1)
+
         final_df = df[["email", "subject", "body"]]
         print("🧪 Final DataFrame preview:\n", final_df.head())
+
+        # Drop invalid rows
+        final_df.dropna(subset=["email", "subject", "body"], inplace=True)
 
         # --- Step 3: Fetch token using user_email ---
         token = load_client_token(user_email)
@@ -1051,13 +1055,15 @@ async def ab_test(data: ABTestRequest, request: Request):
             body = row["body"]
 
             if not to_email or not subject or not body:
-                logger.warning(f"Skipping malformed row: {row}")
+                logger.warning(f"⛔ Skipping email to {to_email}: Empty subject/body")
+                print("🚫 Skipped row:", row.to_dict())
                 failure_count += 1
                 continue
-            print(f"📤 Sending email to: {to_email}")  # DEBUG
+
+            print(f"📤 Sending email to: {to_email}")
             result = send_email(to_email, subject, body, token)
-            
-            print(f"📥 Email send result: {result}")  # DEBUG
+            print(f"📥 Email send result: {result}")
+
             if result["status"] == "success":
                 success_count += 1
             else:
@@ -1073,6 +1079,7 @@ async def ab_test(data: ABTestRequest, request: Request):
     except Exception as e:
         logger.exception("Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 @app.get("/")
 def root():
