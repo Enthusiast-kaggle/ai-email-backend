@@ -1,3 +1,5 @@
+from io import BytesIO
+from PIL import Image
 from google.auth.transport.requests import Request as GoogleRequest
 import pytz
 from fastapi import Body
@@ -967,6 +969,30 @@ def get_campaign_report():
 class ABTestRequest(BaseModel):
     sheet_url: str
     user_email: str
+def generate_transparent_pixel():
+    img = Image.new('RGBA', (1, 1), (0, 0, 0, 0))
+    buffered = BytesIO()
+    img.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode()
+    
+@app.get("/open-track")
+async def open_track(email: str = "", group: str = ""):
+    timestamp = datetime.utcnow().isoformat()
+    conn = sqlite3.connect("your_database.db")  # use your actual DB file name
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ab_tracking (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            group_name TEXT,
+            timestamp TEXT
+        )
+    """)
+    cursor.execute("INSERT INTO ab_tracking (email, group_name, timestamp) VALUES (?, ?, ?)",
+                   (email, group, timestamp))
+    conn.commit()
+    conn.close()
+    return {"status": "tracked"}
 
 
 from fastapi import APIRouter, Request
@@ -1084,9 +1110,13 @@ async def ab_test(data: ABTestRequest, request: Request):
                 print("🚫 Skipped row:", row.to_dict())
                 failure_count += 1
                 continue
-
+            # Add tracking pixel
+            group = "A" if to_email in group_a else "B"
+            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}" width="1" height="1" style="display:none;">'
+            final_html = body + tracking_pixel
             print(f"📤 Sending email to: {to_email}")
-            result = send_email(to_email, subject, body, token)
+            result = send_email(to_email, subject, final_html, token)  # ✅ Send body + pixel
+
             print(f"📥 Email send result: {result}")
 
             if result["status"] == "success":
@@ -1105,6 +1135,27 @@ async def ab_test(data: ABTestRequest, request: Request):
     except Exception as e:
         logger.exception("❗ Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
+        
+@app.get("/ab-test-report")
+async def ab_test_report():
+    conn = sqlite3.connect("your_database.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ab_tracking (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            group_name TEXT,
+            timestamp TEXT
+        )
+    """)
+    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking")
+    records = cursor.fetchall()
+    conn.close()
+
+    return [
+        {"email": r[0], "group": r[1], "timestamp": r[2]}
+        for r in records
+    ]
 
 
 @app.get("/")
