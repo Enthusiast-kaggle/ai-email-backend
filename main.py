@@ -1245,6 +1245,9 @@ async def ab_engagement_report():
             report[key]["clicked_ip"] = ip
             report[key]["clicked_at"] = timestamp
             report[key]["target_url"] = target
+    print("=== AB Engagement Report ===")
+    for entry in report.values():
+        print(entry)
 
     return list(report.values())
 
