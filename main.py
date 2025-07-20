@@ -994,6 +994,28 @@ async def open_track(email: str = "", group: str = ""):
     conn.close()
     return {"status": "tracked"}
 
+@app.get("/click-track")
+async def click_track(email: str = "", group: str = "", url: str = ""):
+    timestamp = datetime.utcnow().isoformat()
+    conn = sqlite3.connect("your_database.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS click_tracking (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            group_name TEXT,
+            url TEXT,
+            timestamp TEXT
+        )
+    """)
+    cursor.execute("INSERT INTO click_tracking (email, group_name, url, timestamp) VALUES (?, ?, ?, ?)",
+                   (email, group, url, timestamp))
+    conn.commit()
+    conn.close()
+
+    # Redirect user to the original URL
+    return RedirectResponse(url)
+
 
 from fastapi import APIRouter, Request
 import pandas as pd
@@ -1015,7 +1037,8 @@ def convert_to_csv_url(sheet_url):
         
 
 from google.oauth2.credentials import Credentials
-
+from bs4 import BeautifulSoup
+import urllib.parse
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest, request: Request):
     try:
@@ -1110,12 +1133,25 @@ async def ab_test(data: ABTestRequest, request: Request):
                 print("🚫 Skipped row:", row.to_dict())
                 failure_count += 1
                 continue
-            # Add tracking pixel
+
+            # Determine group
             group = "A" if to_email in group_a else "B"
+
+            # Inject click tracking into links
+            soup = BeautifulSoup(body, "html.parser")
+            for link in soup.find_all("a", href=True):
+                original_url = link['href']
+                tracked_url = f"https://ai-email-backend-1-m0vj.onrender.com/click-track?email={to_email}&group={group}&url={urllib.parse.quote_plus(original_url)}"
+                link['href'] = tracked_url
+
+            # Add open tracking pixel
             tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}" width="1" height="1" style="display:none;">'
-            final_html = body + tracking_pixel
+
+            # Final HTML with click and open tracking
+            final_html = str(soup) + tracking_pixel
+
             print(f"📤 Sending email to: {to_email}")
-            result = send_email(to_email, subject, final_html, token)  # ✅ Send body + pixel
+            result = send_email(to_email, subject, final_html, token)
 
             print(f"📥 Email send result: {result}")
 
@@ -1136,26 +1172,82 @@ async def ab_test(data: ABTestRequest, request: Request):
         logger.exception("❗ Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
         
-@app.get("/ab-test-report")
-async def ab_test_report():
+@app.get("/ab-engagement-report")
+async def ab_engagement_report():
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
+
+    # Ensure tables exist
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
+            ip TEXT,
             timestamp TEXT
         )
     """)
-    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking")
-    records = cursor.fetchall()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ab_clicks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            group_name TEXT,
+            target_url TEXT,
+            ip TEXT,
+            timestamp TEXT
+        )
+    """)
+
+    # Fetch all opens
+    cursor.execute("SELECT email, group_name, ip, timestamp FROM ab_tracking")
+    open_rows = cursor.fetchall()
+
+    # Fetch all clicks
+    cursor.execute("SELECT email, group_name, ip, target_url, timestamp FROM ab_clicks")
+    click_rows = cursor.fetchall()
+
     conn.close()
 
-    return [
-        {"email": r[0], "group": r[1], "timestamp": r[2]}
-        for r in records
-    ]
+    # Organize by email + group
+    report = {}
+
+    for email, group, ip, timestamp in open_rows:
+        key = (email, group)
+        if key not in report:
+            report[key] = {
+                "email": email,
+                "group": group,
+                "opened": True,
+                "opened_ip": ip,
+                "opened_at": timestamp,
+                "clicked": False,
+                "clicked_ip": None,
+                "clicked_at": None,
+                "target_url": None,
+            }
+
+    for email, group, ip, target, timestamp in click_rows:
+        key = (email, group)
+        if key not in report:
+            report[key] = {
+                "email": email,
+                "group": group,
+                "opened": False,
+                "opened_ip": None,
+                "opened_at": None,
+                "clicked": True,
+                "clicked_ip": ip,
+                "clicked_at": timestamp,
+                "target_url": target,
+            }
+        else:
+            report[key]["clicked"] = True
+            report[key]["clicked_ip"] = ip
+            report[key]["clicked_at"] = timestamp
+            report[key]["target_url"] = target
+
+    return list(report.values())
+
 
 
 @app.get("/")
