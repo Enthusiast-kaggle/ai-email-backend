@@ -15,4 +15,5 @@ tzlocal
 python-multipart
 pytz
 pandas
-PIL
+Pillow
+
