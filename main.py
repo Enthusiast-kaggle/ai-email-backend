@@ -997,19 +997,29 @@ async def open_track(email: str = "", group: str = ""):
 @app.get("/click-track")
 async def click_track(email: str = "", group: str = "", url: str = ""):
     timestamp = datetime.utcnow().isoformat()
+    
+    # Connect to SQLite DB
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
+
+    # Create table ab_clicks if not exists with correct schema
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS click_tracking (
+        CREATE TABLE IF NOT EXISTS ab_clicks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
-            url TEXT,
+            target_url TEXT,
             timestamp TEXT
         )
     """)
-    cursor.execute("INSERT INTO click_tracking (email, group_name, url, timestamp) VALUES (?, ?, ?, ?)",
-                   (email, group, url, timestamp))
+
+    # Insert click tracking data into ab_clicks
+    cursor.execute("""
+        INSERT INTO ab_clicks (email, group_name, target_url, timestamp)
+        VALUES (?, ?, ?, ?)
+    """, (email, group, url, timestamp))
+
+    # Commit and close DB connection
     conn.commit()
     conn.close()
 
