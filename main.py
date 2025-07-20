@@ -1199,11 +1199,11 @@ async def ab_engagement_report():
     """)
 
     # Fetch all opens
-    cursor.execute("SELECT email, group_name, ip, timestamp FROM ab_tracking")
+    cursor.execute("SELECT email, group_name,  timestamp FROM ab_tracking")
     open_rows = cursor.fetchall()
 
     # Fetch all clicks
-    cursor.execute("SELECT email, group_name, ip, target_url, timestamp FROM ab_clicks")
+    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks")
     click_rows = cursor.fetchall()
 
     conn.close()
@@ -1211,38 +1211,33 @@ async def ab_engagement_report():
     # Organize by email + group
     report = {}
 
-    for email, group, ip, timestamp in open_rows:
+    for email, group, timestamp in open_rows:
         key = (email, group)
         if key not in report:
             report[key] = {
                 "email": email,
                 "group": group,
                 "opened": True,
-                "opened_ip": ip,
                 "opened_at": timestamp,
                 "clicked": False,
-                "clicked_ip": None,
                 "clicked_at": None,
                 "target_url": None,
             }
 
-    for email, group, ip, target, timestamp in click_rows:
+    for email, group, target, timestamp in click_rows:
         key = (email, group)
         if key not in report:
             report[key] = {
                 "email": email,
                 "group": group,
                 "opened": False,
-                "opened_ip": None,
                 "opened_at": None,
                 "clicked": True,
-                "clicked_ip": ip,
                 "clicked_at": timestamp,
                 "target_url": target,
             }
         else:
             report[key]["clicked"] = True
-            report[key]["clicked_ip"] = ip
             report[key]["clicked_at"] = timestamp
             report[key]["target_url"] = target
     print("=== AB Engagement Report ===")
