@@ -1,5 +1,4 @@
 from io import BytesIO
-pip install Pillow
 from PIL import Image
 from google.auth.transport.requests import Request as GoogleRequest
 import pytz
