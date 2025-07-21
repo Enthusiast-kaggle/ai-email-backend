@@ -1192,43 +1192,29 @@ from fastapi.responses import JSONResponse
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-@app.get("/ab-engagement-report")
-async def ab_engagement_report():
+@app.post("/ab-engagement-report")
+async def ab_engagement_report(request: Request):
+    # No need to get user_email anymore
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
-    # Ensure tables exist
+    # Fetch all open tracking data
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_tracking (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            ip TEXT,
-            timestamp TEXT
-        )
+        SELECT email, group_name, timestamp
+        FROM ab_tracking
     """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_clicks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            target_url TEXT,
-            ip TEXT,
-            timestamp TEXT
-        )
-    """)
-
-    # Fetch all opens
-    cursor.execute("SELECT email, group_name,  timestamp FROM ab_tracking")
     open_rows = cursor.fetchall()
 
-    # Fetch all clicks
-    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks")
+    # Fetch all click tracking data
+    cursor.execute("""
+        SELECT email, group_name, target_url, timestamp
+        FROM ab_clicks
+    """)
     click_rows = cursor.fetchall()
 
     conn.close()
 
-    # Organize by email + group
+    # Construct report
     report = {}
 
     for email, group, timestamp in open_rows:
@@ -1260,11 +1246,13 @@ async def ab_engagement_report():
             report[key]["clicked"] = True
             report[key]["clicked_at"] = timestamp
             report[key]["target_url"] = target
-    print("=== AB Engagement Report ===")
+
+    print("=== A/B Engagement Report ===")
     for entry in report.values():
         print(entry)
 
     return list(report.values())
+
     
 @app.get("/")
 def root():
