@@ -1057,27 +1057,11 @@ async def ab_test(data: ABTestRequest, request: Request):
     try:
         logger.info("🔵 A/B test endpoint called.")
         sheet_url = data.sheet_url
-        logger.info(f"🟡 Received A/B test request with sheet URL: {sheet_url}")
+        user_email = data.user_email
+        logger.info(f"🟡 Received A/B test request with sheet URL: {sheet_url} for user: {user_email}")
+        print("🟡 Received A/B test data:", data.dict())
 
-        # --- Step 1: Verify token and extract user email ---
-        logger.info("🔐 Extracting token from Authorization header...")
-        auth_header = request.headers.get("Authorization")
-        if not auth_header or not auth_header.startswith("Bearer "):
-            logger.error("❌ Authorization header missing or invalid")
-            return JSONResponse(status_code=401, content={"error": "Authorization token required."})
-        
-        token = auth_header.split(" ")[1]
-        logger.info("🔐 Verifying token and extracting user email...")
-
-        try:
-            id_info = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
-            user_email = id_info["email"]
-            logger.info(f"✅ Verified user email from token: {user_email}")
-        except Exception as e:
-            logger.error(f"❌ Token verification failed: {str(e)}")
-            return JSONResponse(status_code=401, content={"error": "Invalid or expired token."})
-
-        # --- Step 2: Convert to CSV ---
+        # --- Step 1: Convert to CSV ---
         def convert_to_csv_url(sheet_url: str) -> str:
             logger.info("🔧 Converting sheet URL to CSV URL...")
             if "docs.google.com" in sheet_url and "/edit" in sheet_url:
@@ -1115,7 +1099,7 @@ async def ab_test(data: ABTestRequest, request: Request):
 
         logger.info("✅ Required columns found, proceeding to split groups.")
 
-        # --- Step 3: Split into A and B groups ---
+        # --- Step 2: Split into A and B groups ---
         df["email"] = df["email"].astype(str).str.strip()
         emails = df["email"].dropna().unique().tolist()
         logger.info(f"📧 Unique cleaned emails count: {len(emails)}")
@@ -1137,15 +1121,16 @@ async def ab_test(data: ABTestRequest, request: Request):
         final_df.dropna(subset=["email", "subject", "body"], inplace=True)
         logger.info(f"✅ Rows after dropna: {len(final_df)}")
 
-        # --- Step 4: Fetch Gmail token for this user ---
-        logger.info("🔐 Loading Gmail token for verified user...")
-        user_token = load_client_token(user_email)
-        print("📦 Loaded token:", user_token)
-        if not user_token:
+        # --- Step 3: Fetch token using user_email ---
+        logger.info("🔐 Loading Gmail token for user...")
+        token = load_client_token(user_email)
+        print("📦 Loaded token:", token)
+        if not token:
+            print("❌ Token not found for:", user_email)
             logger.error("❌ No token found for user.")
             return JSONResponse(status_code=400, content={"error": "Could not fetch token for user email."})
 
-        # --- Step 5: Send Emails ---
+        # --- Step 4: Send Emails ---
         logger.info("📤 Starting to send emails...")
         success_count = 0
         failure_count = 0
@@ -1158,23 +1143,30 @@ async def ab_test(data: ABTestRequest, request: Request):
 
             if not to_email or not subject or not body:
                 logger.warning(f"⛔ Skipping email to {to_email}: Empty subject/body")
+                print("🚫 Skipped row:", row.to_dict())
                 failure_count += 1
                 continue
 
+            # Determine group
             group = "A" if to_email in group_a else "B"
 
+            # Inject click tracking into links
             soup = BeautifulSoup(body, "html.parser")
             for link in soup.find_all("a", href=True):
                 original_url = link['href']
-                encoded_url = urllib.parse.quote(original_url, safe='')
-                tracked_url = f"https://ai-email-backend-1-m0vj.onrender.com/click-track?email={to_email}&group={group}&sender={user_email}&url={encoded_url}"
+                tracked_url = f"https://ai-email-backend-1-m0vj.onrender.com/click-track?email={to_email}&group={group}&url={urllib.parse.quote_plus(original_url)}"
                 link['href'] = tracked_url
 
-            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}&sender={user_email}" width="1" height="1" style="display:none;">'
+            # Add open tracking pixel
+            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}" width="1" height="1" style="display:none;">'
+
+            # Final HTML with click and open tracking
             final_html = str(soup) + tracking_pixel
 
             print(f"📤 Sending email to: {to_email}")
-            result = send_email(to_email, subject, final_html, user_token)
+            result = send_email(to_email, subject, final_html, token)
+
+            print(f"📥 Email send result: {result}")
 
             if result["status"] == "success":
                 success_count += 1
@@ -1192,28 +1184,26 @@ async def ab_test(data: ABTestRequest, request: Request):
     except Exception as e:
         logger.exception("❗ Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
-
-
-from fastapi import Request
-from fastapi.responses import JSONResponse
+        
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-@app.post("/ab-engagement-report")
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.get("/ab-engagement-report")
 async def ab_engagement_report():
-    user_email = get_email_from_latest_token()
-    if not user_email:
-        return JSONResponse({"error": "Unauthorized. Connect Gmail first."}, status_code=401)
-
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
+
+    # Ensure tables exist
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
-            sender_email TEXT,
+            ip TEXT,
             timestamp TEXT
         )
     """)
@@ -1222,30 +1212,37 @@ async def ab_engagement_report():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
-            sender_email TEXT,
             target_url TEXT,
+            ip TEXT,
             timestamp TEXT
         )
     """)
 
-    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (user_email,))
+    # Fetch all opens
+    cursor.execute("SELECT email, group_name,  timestamp FROM ab_tracking")
     open_rows = cursor.fetchall()
-    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE sender_email = ?", (user_email,))
+
+    # Fetch all clicks
+    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks")
     click_rows = cursor.fetchall()
+
     conn.close()
 
+    # Organize by email + group
     report = {}
+
     for email, group, timestamp in open_rows:
         key = (email, group)
-        report[key] = {
-            "email": email,
-            "group": group,
-            "opened": True,
-            "opened_at": timestamp,
-            "clicked": False,
-            "clicked_at": None,
-            "target_url": None,
-        }
+        if key not in report:
+            report[key] = {
+                "email": email,
+                "group": group,
+                "opened": True,
+                "opened_at": timestamp,
+                "clicked": False,
+                "clicked_at": None,
+                "target_url": None,
+            }
 
     for email, group, target, timestamp in click_rows:
         key = (email, group)
@@ -1263,9 +1260,12 @@ async def ab_engagement_report():
             report[key]["clicked"] = True
             report[key]["clicked_at"] = timestamp
             report[key]["target_url"] = target
+    print("=== AB Engagement Report ===")
+    for entry in report.values():
+        print(entry)
 
     return list(report.values())
-
+    
 @app.get("/")
 def root():
     return {"message": "✅ AI Email Assistant Backend is running!"}
