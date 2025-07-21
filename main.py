@@ -975,17 +975,12 @@ def generate_transparent_pixel():
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
 
-def get_email_from_latest_token():
-    latest_token_data = get_latest_token_data()
-    if not latest_token_data:
-        return None
-    return get_user_email_from_token(latest_token_data)
     
 @app.get("/open-track")
-async def open_track(email: str = "", group: str = "", sender: str = ""):
-    timestamp = datetime.utcnow().isoformat()
-    conn = sqlite3.connect("your_database.db")
+async def open_track(email: str, group: str, sender: str):
+    conn = sqlite3.connect("your_tracking.db")
     cursor = conn.cursor()
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -995,20 +990,28 @@ async def open_track(email: str = "", group: str = "", sender: str = ""):
             timestamp TEXT
         )
     """)
-    cursor.execute(
-        "INSERT INTO ab_tracking (email, group_name, sender_email, timestamp) VALUES (?, ?, ?, ?)",
-        (email, group, sender, timestamp)
-    )
+
+    cursor.execute("""
+        INSERT INTO ab_tracking (email, group_name, sender_email, timestamp)
+        VALUES (?, ?, ?, ?)
+    """, (email, group, sender, datetime.datetime.utcnow().isoformat()))
+
     conn.commit()
     conn.close()
-    return {"status": "tracked"}
 
+    pixel = generate_transparent_pixel()
+    return Response(content=pixel, media_type="image/png")
+
+
+
+# === CLICK TRACK ===
+from fastapi.responses import RedirectResponse
 
 @app.get("/click-track")
-async def click_track(email: str = "", group: str = "", url: str = "", sender: str = ""):
-    timestamp = datetime.utcnow().isoformat()
-    conn = sqlite3.connect("your_database.db")
+async def click_track(email: str, group: str, sender: str, url: str):
+    conn = sqlite3.connect("your_tracking.db")
     cursor = conn.cursor()
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_clicks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1019,13 +1022,16 @@ async def click_track(email: str = "", group: str = "", url: str = "", sender: s
             timestamp TEXT
         )
     """)
-    cursor.execute(
-        "INSERT INTO ab_clicks (email, group_name, sender_email, target_url, timestamp) VALUES (?, ?, ?, ?, ?)",
-        (email, group, sender, url, timestamp)
-    )
+
+    cursor.execute("""
+        INSERT INTO ab_clicks (email, group_name, sender_email, target_url, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+    """, (email, group, sender, url, datetime.datetime.utcnow().isoformat()))
+
     conn.commit()
     conn.close()
-    return RedirectResponse(url)
+
+    return RedirectResponse(url=url)
 
 
 
@@ -1062,14 +1068,7 @@ async def ab_test(data: ABTestRequest, request: Request):
         print("🟡 Received A/B test data:", data.dict())
 
         # --- Step 1: Convert to CSV ---
-        def convert_to_csv_url(sheet_url: str) -> str:
-            logger.info("🔧 Converting sheet URL to CSV URL...")
-            if "docs.google.com" in sheet_url and "/edit" in sheet_url:
-                csv = sheet_url.replace('/edit?usp=sharing', '/export?format=csv')
-                logger.info(f"✅ Converted CSV URL: {csv}")
-                return csv
-            logger.warning("❌ Invalid Google Sheet URL format")
-            return None
+
 
         csv_url = convert_to_csv_url(sheet_url)
         if not csv_url:
@@ -1189,77 +1188,75 @@ async def ab_test(data: ABTestRequest, request: Request):
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
 
+# === A/B ENGAGEMENT REPORT ===
 @app.get("/ab-engagement-report")
 async def ab_engagement_report():
-    try:
-        # Connect to correct DB
-        conn = sqlite3.connect("your_tracking.db")
-        cursor = conn.cursor()
+    conn = sqlite3.connect("your_tracking.db")
+    cursor = conn.cursor()
 
-        # Fetch open tracking data
-        cursor.execute("""
-            SELECT email, group_name, timestamp
-            FROM ab_tracking
-        """)
-        open_rows = cursor.fetchall()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ab_tracking (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            group_name TEXT,
+            sender_email TEXT,
+            timestamp TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS ab_clicks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT,
+            group_name TEXT,
+            sender_email TEXT,
+            target_url TEXT,
+            timestamp TEXT
+        )
+    """)
 
-        # Fetch click tracking data
-        cursor.execute("""
-            SELECT email, group_name, target_url, timestamp
-            FROM ab_clicks
-        """)
-        click_rows = cursor.fetchall()
+    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking")
+    open_rows = cursor.fetchall()
 
-        conn.close()
+    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks")
+    click_rows = cursor.fetchall()
 
-        # Build report dictionary
-        report = {}
+    conn.close()
 
-        # Process open events
-        for email, group, timestamp in open_rows:
-            key = (email, group)
-            if key not in report:
-                report[key] = {
-                    "email": email,
-                    "group": group,
-                    "opened": True,
-                    "opened_at": timestamp,
-                    "clicked": False,
-                    "clicked_at": None,
-                    "target_url": None,
-                }
+    report = {}
 
-        # Process click events
-        for email, group, target, timestamp in click_rows:
-            key = (email, group)
-            if key not in report:
-                report[key] = {
-                    "email": email,
-                    "group": group,
-                    "opened": False,
-                    "opened_at": None,
-                    "clicked": True,
-                    "clicked_at": timestamp,
-                    "target_url": target,
-                }
-            else:
-                report[key]["clicked"] = True
-                report[key]["clicked_at"] = timestamp
-                report[key]["target_url"] = target
+    for email, group, timestamp in open_rows:
+        key = (email, group)
+        report.setdefault(key, {
+            "email": email,
+            "group": group,
+            "opened": True,
+            "opened_at": timestamp,
+            "clicked": False,
+            "clicked_at": None,
+            "target_url": None
+        })
 
-        # Optional debug log
-        print("=== A/B Engagement Report ===")
-        for entry in report.values():
-            print(entry)
+    for email, group, target_url, timestamp in click_rows:
+        key = (email, group)
+        if key in report:
+            report[key]["clicked"] = True
+            report[key]["clicked_at"] = timestamp
+            report[key]["target_url"] = target_url
+        else:
+            report[key] = {
+                "email": email,
+                "group": group,
+                "opened": False,
+                "opened_at": None,
+                "clicked": True,
+                "clicked_at": timestamp,
+                "target_url": target_url
+            }
 
-        # Return as a list (JSON-compatible)
-        return list(report.values())
+    return list(report.values())
 
-    except Exception as e:
-        return {"error": str(e)}
+    
 @app.get("/")
 def root():
     return {"message": "✅ AI Email Assistant Backend is running!"}
