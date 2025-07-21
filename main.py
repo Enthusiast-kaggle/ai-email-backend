@@ -976,54 +976,54 @@ def generate_transparent_pixel():
     return base64.b64encode(buffered.getvalue()).decode()
     
 @app.get("/open-track")
-async def open_track(email: str = "", group: str = ""):
+async def open_track(email: str = "", group: str = "", sender: str = ""):
     timestamp = datetime.utcnow().isoformat()
-    conn = sqlite3.connect("your_database.db")  # use your actual DB file name
+    conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
+            sender_email TEXT,
             timestamp TEXT
         )
     """)
-    cursor.execute("INSERT INTO ab_tracking (email, group_name, timestamp) VALUES (?, ?, ?)",
-                   (email, group, timestamp))
+    cursor.execute(
+        "INSERT INTO ab_tracking (email, group_name, sender_email, timestamp) VALUES (?, ?, ?, ?)",
+        (email, group, sender, timestamp)
+    )
     conn.commit()
     conn.close()
     return {"status": "tracked"}
 
+
 @app.get("/click-track")
-async def click_track(email: str = "", group: str = "", url: str = ""):
+async def click_track(email: str = "", group: str = "", url: str = "", sender: str = ""):
     timestamp = datetime.utcnow().isoformat()
-    
-    # Connect to SQLite DB
+
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
-    # Create table ab_clicks if not exists with correct schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_clicks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
+            sender_email TEXT,
             target_url TEXT,
             timestamp TEXT
         )
     """)
+    cursor.execute(
+        "INSERT INTO ab_clicks (email, group_name, sender_email, target_url, timestamp) VALUES (?, ?, ?, ?, ?)",
+        (email, group, sender, url, timestamp)
+    )
 
-    # Insert click tracking data into ab_clicks
-    cursor.execute("""
-        INSERT INTO ab_clicks (email, group_name, target_url, timestamp)
-        VALUES (?, ?, ?, ?)
-    """, (email, group, url, timestamp))
-
-    # Commit and close DB connection
     conn.commit()
     conn.close()
 
-    # Redirect user to the original URL
     return RedirectResponse(url)
 
 
@@ -1049,6 +1049,7 @@ def convert_to_csv_url(sheet_url):
 from google.oauth2.credentials import Credentials
 from bs4 import BeautifulSoup
 import urllib.parse
+
 @app.post("/ab-test")
 async def ab_test(data: ABTestRequest, request: Request):
     try:
@@ -1151,11 +1152,12 @@ async def ab_test(data: ABTestRequest, request: Request):
             soup = BeautifulSoup(body, "html.parser")
             for link in soup.find_all("a", href=True):
                 original_url = link['href']
-                tracked_url = f"https://ai-email-backend-1-m0vj.onrender.com/click-track?email={to_email}&group={group}&url={urllib.parse.quote_plus(original_url)}"
+                encoded_url = urllib.parse.quote(original_url, safe='')
+                tracked_url = f"https://ai-email-backend-1-m0vj.onrender.com/click-track?email={to_email}&group={group}&sender={user_email}&url={encoded_url}"
                 link['href'] = tracked_url
 
             # Add open tracking pixel
-            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}" width="1" height="1" style="display:none;">'
+            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}&sender={user_email}" width="1" height="1" style="display:none;">'
 
             # Final HTML with click and open tracking
             final_html = str(soup) + tracking_pixel
@@ -1181,7 +1183,7 @@ async def ab_test(data: ABTestRequest, request: Request):
     except Exception as e:
         logger.exception("❗ Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
-        
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
@@ -1200,31 +1202,32 @@ async def ab_engagement_report(request: Request):
 
     # Ensure tables exist
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_tracking (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            ip TEXT,
-            timestamp TEXT
-        )
+    CREATE TABLE IF NOT EXISTS ab_tracking (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        group_name TEXT,
+        sender_email TEXT,
+        timestamp TEXT
+    )
     """)
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_clicks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            target_url TEXT,
-            ip TEXT,
-            timestamp TEXT
-        )
+    CREATE TABLE IF NOT EXISTS ab_clicks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        group_name TEXT,
+        sender_email TEXT,
+        target_url TEXT,
+        timestamp TEXT
+    )
     """)
 
-    # Fetch data for this specific user
-    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE email = ?", (user_email,))
+
+    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (user_email,))
     open_rows = cursor.fetchall()
 
-    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE email = ?", (user_email,))
+    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE sender_email = ?", (user_email,))
     click_rows = cursor.fetchall()
+
 
     conn.close()
 
