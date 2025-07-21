@@ -1192,68 +1192,74 @@ from fastapi.responses import JSONResponse
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-@app.post("/ab-engagement-report")
-async def ab_engagement_report(request: Request):
-    # No need to get user_email anymore
-    conn = sqlite3.connect("your_database.db")
-    cursor = conn.cursor()
+@app.get("/ab-engagement-report")
+async def ab_engagement_report():
+    try:
+        # Connect to correct DB
+        conn = sqlite3.connect("your_tracking.db")
+        cursor = conn.cursor()
 
-    # Fetch all open tracking data
-    cursor.execute("""
-        SELECT email, group_name, timestamp
-        FROM ab_tracking
-    """)
-    open_rows = cursor.fetchall()
+        # Fetch open tracking data
+        cursor.execute("""
+            SELECT email, group_name, timestamp
+            FROM ab_tracking
+        """)
+        open_rows = cursor.fetchall()
 
-    # Fetch all click tracking data
-    cursor.execute("""
-        SELECT email, group_name, target_url, timestamp
-        FROM ab_clicks
-    """)
-    click_rows = cursor.fetchall()
+        # Fetch click tracking data
+        cursor.execute("""
+            SELECT email, group_name, target_url, timestamp
+            FROM ab_clicks
+        """)
+        click_rows = cursor.fetchall()
 
-    conn.close()
+        conn.close()
 
-    # Construct report
-    report = {}
+        # Build report dictionary
+        report = {}
 
-    for email, group, timestamp in open_rows:
-        key = (email, group)
-        if key not in report:
-            report[key] = {
-                "email": email,
-                "group": group,
-                "opened": True,
-                "opened_at": timestamp,
-                "clicked": False,
-                "clicked_at": None,
-                "target_url": None,
-            }
+        # Process open events
+        for email, group, timestamp in open_rows:
+            key = (email, group)
+            if key not in report:
+                report[key] = {
+                    "email": email,
+                    "group": group,
+                    "opened": True,
+                    "opened_at": timestamp,
+                    "clicked": False,
+                    "clicked_at": None,
+                    "target_url": None,
+                }
 
-    for email, group, target, timestamp in click_rows:
-        key = (email, group)
-        if key not in report:
-            report[key] = {
-                "email": email,
-                "group": group,
-                "opened": False,
-                "opened_at": None,
-                "clicked": True,
-                "clicked_at": timestamp,
-                "target_url": target,
-            }
-        else:
-            report[key]["clicked"] = True
-            report[key]["clicked_at"] = timestamp
-            report[key]["target_url"] = target
+        # Process click events
+        for email, group, target, timestamp in click_rows:
+            key = (email, group)
+            if key not in report:
+                report[key] = {
+                    "email": email,
+                    "group": group,
+                    "opened": False,
+                    "opened_at": None,
+                    "clicked": True,
+                    "clicked_at": timestamp,
+                    "target_url": target,
+                }
+            else:
+                report[key]["clicked"] = True
+                report[key]["clicked_at"] = timestamp
+                report[key]["target_url"] = target
 
-    print("=== A/B Engagement Report ===")
-    for entry in report.values():
-        print(entry)
+        # Optional debug log
+        print("=== A/B Engagement Report ===")
+        for entry in report.values():
+            print(entry)
 
-    return list(report.values())
+        # Return as a list (JSON-compatible)
+        return list(report.values())
 
-    
+    except Exception as e:
+        return {"error": str(e)}
 @app.get("/")
 def root():
     return {"message": "✅ AI Email Assistant Backend is running!"}
