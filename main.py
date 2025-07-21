@@ -1182,43 +1182,46 @@ async def ab_test(data: ABTestRequest, request: Request):
         logger.exception("❗ Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
         
-@app.get("/ab-engagement-report")
-async def ab_engagement_report():
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+@app.post("/ab-engagement-report")
+async def ab_engagement_report(request: Request):
+    data = await request.json()
+    user_email = data.get("email")
+
+    if not user_email:
+        return JSONResponse(status_code=400, content={"error": "Email is required"})
+
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
     # Ensure tables exist
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_tracking (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            ip TEXT,
-            timestamp TEXT
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_clicks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            target_url TEXT,
-            ip TEXT,
-            timestamp TEXT
-        )
-    """)
+    cursor.execute("""CREATE TABLE IF NOT EXISTS ab_tracking (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        group_name TEXT,
+        ip TEXT,
+        timestamp TEXT
+    )""")
+    cursor.execute("""CREATE TABLE IF NOT EXISTS ab_clicks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT,
+        group_name TEXT,
+        target_url TEXT,
+        ip TEXT,
+        timestamp TEXT
+    )""")
 
-    # Fetch all opens
-    cursor.execute("SELECT email, group_name,  timestamp FROM ab_tracking")
+    # Fetch only records for this user
+    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE email=?", (user_email,))
     open_rows = cursor.fetchall()
 
-    # Fetch all clicks
-    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks")
+    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE email=?", (user_email,))
     click_rows = cursor.fetchall()
 
     conn.close()
 
-    # Organize by email + group
     report = {}
 
     for email, group, timestamp in open_rows:
@@ -1250,9 +1253,6 @@ async def ab_engagement_report():
             report[key]["clicked"] = True
             report[key]["clicked_at"] = timestamp
             report[key]["target_url"] = target
-    print("=== AB Engagement Report ===")
-    for entry in report.values():
-        print(entry)
 
     return list(report.values())
 
