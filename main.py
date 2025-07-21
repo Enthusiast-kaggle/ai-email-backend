@@ -1153,11 +1153,17 @@ async def ab_test(data: ABTestRequest, request: Request):
             soup = BeautifulSoup(body, "html.parser")
             for link in soup.find_all("a", href=True):
                 original_url = link['href']
-                tracked_url = f"https://ai-email-backend-1-m0vj.onrender.com/click-track?email={to_email}&group={group}&url={urllib.parse.quote_plus(original_url)}"
+                tracked_url = (
+                               f"https://ai-email-backend-1-m0vj.onrender.com/click-track"
+                               f"?email={to_email}&group={group}&sender={user_email}&url={urllib.parse.quote_plus(original_url)}"
+                              )
                 link['href'] = tracked_url
 
             # Add open tracking pixel
-            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}" width="1" height="1" style="display:none;">'
+            tracking_pixel = (
+                               f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track'
+                               f'?email={to_email}&group={group}&sender={user_email}" width="1" height="1" style="display:none;">'
+                             )
 
             # Final HTML with click and open tracking
             final_html = str(soup) + tracking_pixel
