@@ -722,7 +722,14 @@ def check_and_send_scheduled_emails():
             email_id, sender, recipient, subject, body = email
             try:
                 client_token = load_client_token(sender)
-                send_email(recipient, subject, body, client_token_data=client_token, sender)
+                send_email(
+                             recipient=recipient,
+                             subject=subject,
+                             body=body,
+                             client_token_data=client_token,
+                             sender_email=sender
+                            )
+
                 print(f"✅ Scheduled email sent from {sender} to {recipient}")
             except Exception as e:
                 print(f"❌ Failed to send scheduled email from {sender} to {recipient}: {e}")
@@ -829,7 +836,13 @@ Email:
                 batch = recipients[i:i+batch_size]
                 for email in batch:
                     try:
-                        send_email(email, subject, body, client_token_data=client_token, sender_email)
+                         send_email(
+                             recipient=recipient,
+                             subject=subject,
+                             body=body,
+                             client_token_data=client_token,
+                             sender_email=sender_email
+                            )
                     except Exception as e:
                         print(f"❌ Failed to send to {email}: {e}")
                 time.sleep(delay_between_batches)
