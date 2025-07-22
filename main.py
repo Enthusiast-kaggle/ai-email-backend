@@ -572,19 +572,6 @@ def download_db():
     return FileResponse("tokens.db", media_type='application/octet-stream', filename="tokens.db")
 
 
-def load_state():
-    try:
-        with open(STATE_FILE, "r") as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {"enabled": False, "progress": 0, "client_email": None}
-
-def save_state(state):
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
-
-
-
 def send_email_from(sender, recipient, subject, body):
     try:
         token_data = load_client_token(sender)
@@ -735,7 +722,7 @@ def check_and_send_scheduled_emails():
             email_id, sender, recipient, subject, body = email
             try:
                 client_token = load_client_token(sender)
-                send_email(recipient, subject, body, client_token_data=client_token)
+                send_email(recipient, subject, body, client_token_data=client_token, sender)
                 print(f"✅ Scheduled email sent from {sender} to {recipient}")
             except Exception as e:
                 print(f"❌ Failed to send scheduled email from {sender} to {recipient}: {e}")
@@ -837,11 +824,12 @@ Email:
         delay_between_batches = 10
 
         def send_emails_in_batches(recipients, subject, body):
+            sender_email = email_data.sender_email
             for i in range(0, len(recipients), batch_size):
                 batch = recipients[i:i+batch_size]
                 for email in batch:
                     try:
-                        send_email(email, subject, body, client_token_data=client_token)
+                        send_email(email, subject, body, client_token_data=client_token, sender_email)
                     except Exception as e:
                         print(f"❌ Failed to send to {email}: {e}")
                 time.sleep(delay_between_batches)
@@ -878,6 +866,7 @@ Email:
         ))
 
         def send_drip_pairs_to_all():
+            sender_email = email_data.sender_email
             for part_no in message_parts:
                 subject_key = f"Subject({part_no})"
                 body_key = f"Body({part_no})"
@@ -887,7 +876,7 @@ Email:
                     body = row.get(body_key, "").strip()
                     if recipient and subject and body:
                         try:
-                            send_email(recipient, subject, body, client_token_data=client_token)
+                            send_email(recipient, subject, body, client_token_data=client_token, sender_email)
                             print(f"✅ Sent Part {part_no} to {recipient}")
                         except Exception as e:
                             print(f"❌ Failed to send to {recipient}: {e}")
