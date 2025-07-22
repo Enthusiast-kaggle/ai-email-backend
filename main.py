@@ -226,7 +226,7 @@ def send_warmup_emails(sender_email, creds):
     for recipient in recipients:
         if recipient == sender_email:
             continue
-        send_email(recipient, subject, body, client_token_data)
+        send_email(recipient, subject, body, client_token_data , sender_email)
 
     # Update progress
     if limit < len(warmup_pool):
@@ -520,7 +520,7 @@ def load_client_token(email):
 
     return token_dict
     
-def send_email(recipient, subject, body, client_token_data: dict):
+def send_email(recipient, subject, body, client_token_data: dict, sender_email: str):
     try:
         creds = Credentials.from_authorized_user_info(client_token_data)
 
@@ -1167,7 +1167,7 @@ async def ab_test(data: ABTestRequest, request: Request):
             final_html = str(soup) + tracking_pixel
 
             print(f"📤 Sending email to: {to_email}")
-            result = send_email(to_email, subject, final_html, token)
+            result = send_email(to_email, subject, final_html, token , sender_email)
 
             print(f"📥 Email send result: {result}")
 
