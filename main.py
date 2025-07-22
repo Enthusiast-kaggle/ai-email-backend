@@ -889,7 +889,14 @@ Email:
                     body = row.get(body_key, "").strip()
                     if recipient and subject and body:
                         try:
-                            send_email(recipient, subject, body, client_token_data=client_token, sender_email)
+                            send_email(
+                                       recipient=recipient,
+                                       subject=subject,
+                                       body=body,
+                                       client_token_data=client_token,
+                                       sender_email=sender
+                                      )
+
                             print(f"✅ Sent Part {part_no} to {recipient}")
                         except Exception as e:
                             print(f"❌ Failed to send to {recipient}: {e}")
