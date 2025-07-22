@@ -3,6 +3,7 @@ from PIL import Image
 from google.auth.transport.requests import Request as GoogleRequest
 import pytz
 from fastapi import Body
+from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -544,7 +545,7 @@ def send_email(recipient, subject, body, client_token_data: dict, sender_email: 
         service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
         print(f"✅ Email sent to {recipient}")
-        log_email(email_id, recipient, subject)
+        log_email(sender_email, recipient, subject)
         return {"status": "success", "email_id": email_id, "recipient": recipient}
 
     except Exception as e:
@@ -933,38 +934,75 @@ async def run_mail_merge(request: Request):
     except Exception as e:
         return {"status": "error", "message": f"Server error: {str(e)}"}
 
-@app.get("/campaign-report")
-def get_campaign_report():
+
+# Initialize tracking table if not exists
+def initialize_tracking_db():
+    conn = sqlite3.connect(TRACKING_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS tracking_logs (
+            id TEXT PRIMARY KEY,
+            sender TEXT,
+            recipient TEXT,
+            subject TEXT,
+            status TEXT DEFAULT 'sent',
+            sent_time TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+# Call initialization once at startup
+initialize_tracking_db()
+
+def log_email(sender, recipient, subject, status="sent"):
+    conn = sqlite3.connect(TRACKING_DB)
+    cursor = conn.cursor()
+    cursor.execute('''
+        INSERT INTO tracking_logs (id, sender, recipient, subject, status, sent_time)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (
+        str(uuid.uuid4()),
+        sender,
+        recipient,
+        subject,
+        status,
+        datetime.utcnow().isoformat()
+    ))
+    conn.commit()
+    conn.close()
+
+@app.get("/get-campaign-report")
+async def get_campaign_report(request: Request):
     try:
+        # Extract sender email from token (adjust if your logic differs)
+        sender_email = request.state.token_email if hasattr(request.state, "token_email") else None
+        if not sender_email:
+            return JSONResponse(status_code=401, content={"error": "Sender not authenticated"})
+
         conn = sqlite3.connect(TRACKING_DB)
         cursor = conn.cursor()
         cursor.execute('''
-            CREATE TABLE IF NOT EXISTS tracking_logs (
-                id TEXT PRIMARY KEY,
-                recipient TEXT,
-                subject TEXT,
-                status TEXT DEFAULT 'sent',
-                sent_time TEXT
-            )
-        ''')
-        cursor.execute("SELECT id, recipient, subject, status, sent_time FROM tracking_logs ORDER BY sent_time DESC")
-        rows = cursor.fetchall()
+            SELECT recipient, subject, status, sent_time
+            FROM tracking_logs
+            WHERE sender = ?
+            ORDER BY sent_time DESC
+        ''', (sender_email,))
+        logs = cursor.fetchall()
         conn.close()
 
-        result = [
+        return {"report": [
             {
-                "id": row[0],
-                "recipient": row[1],
-                "subject": row[2],
-                "status": row[3],
-                "sent_time": row[4]
+                "recipient": row[0],
+                "subject": row[1],
+                "status": row[2],
+                "sent_time": row[3]
             }
-            for row in rows
-        ]
-
-        return result
+            for row in logs
+        ]}
     except Exception as e:
-        return {"status": "error", "message": f"Failed to fetch report: {str(e)}"}
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
 
 class ABTestRequest(BaseModel):
     sheet_url: str
