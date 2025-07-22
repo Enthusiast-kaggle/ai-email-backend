@@ -530,7 +530,8 @@ def send_email(recipient, subject, body, client_token_data: dict):
 
 
         service = build("gmail", "v1", credentials=creds)
-        sender_email = get_user_email_from_token(client_token_data)
+        sender_email = data.user_email
+
         email_id = str(uuid.uuid4())
         html_body = body  # Already contains tracking
 
