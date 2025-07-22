@@ -530,14 +530,13 @@ def send_email(recipient, subject, body, client_token_data: dict):
 
 
         service = build("gmail", "v1", credentials=creds)
-
+        sender_email = get_user_email_from_token(client_token_data)
         email_id = str(uuid.uuid4())
-        html_body = add_tracking_to_body(body, email_id)
+        html_body = body  # Already contains tracking
 
         message = MIMEMultipart("alternative")
         message["to"] = recipient
         message["subject"] = subject
-        message.attach(MIMEText(body, "plain"))
         message.attach(MIMEText(html_body, "html"))
 
         raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
@@ -976,54 +975,55 @@ def generate_transparent_pixel():
     return base64.b64encode(buffered.getvalue()).decode()
     
 @app.get("/open-track")
-async def open_track(email: str = "", group: str = ""):
+async def open_track(email: str = "", group: str = "", sender: str = ""):
     timestamp = datetime.utcnow().isoformat()
-    conn = sqlite3.connect("your_database.db")  # use your actual DB file name
+    conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
+            sender_email TEXT,
             timestamp TEXT
         )
     """)
-    cursor.execute("INSERT INTO ab_tracking (email, group_name, timestamp) VALUES (?, ?, ?)",
-                   (email, group, timestamp))
+
+    cursor.execute("""
+        INSERT INTO ab_tracking (email, group_name, sender_email, timestamp)
+        VALUES (?, ?, ?, ?)
+    """, (email, group, sender, timestamp))
+
     conn.commit()
     conn.close()
     return {"status": "tracked"}
 
+
 @app.get("/click-track")
-async def click_track(email: str = "", group: str = "", url: str = ""):
+async def click_track(email: str = "", group: str = "", url: str = "", sender: str = ""):
     timestamp = datetime.utcnow().isoformat()
-    
-    # Connect to SQLite DB
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
-    # Create table ab_clicks if not exists with correct schema
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_clicks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
+            sender_email TEXT,
             target_url TEXT,
             timestamp TEXT
         )
     """)
 
-    # Insert click tracking data into ab_clicks
     cursor.execute("""
-        INSERT INTO ab_clicks (email, group_name, target_url, timestamp)
-        VALUES (?, ?, ?, ?)
-    """, (email, group, url, timestamp))
+        INSERT INTO ab_clicks (email, group_name, sender_email, target_url, timestamp)
+        VALUES (?, ?, ?, ?, ?)
+    """, (email, group, sender, url, timestamp))
 
-    # Commit and close DB connection
     conn.commit()
     conn.close()
-
-    # Redirect user to the original URL
     return RedirectResponse(url)
 
 
@@ -1067,6 +1067,7 @@ async def ab_test(data: ABTestRequest, request: Request):
                 return csv
             logger.warning("❌ Invalid Google Sheet URL format")
             return None
+        
 
         csv_url = convert_to_csv_url(sheet_url)
         if not csv_url:
@@ -1121,6 +1122,7 @@ async def ab_test(data: ABTestRequest, request: Request):
         # --- Step 3: Fetch token using user_email ---
         logger.info("🔐 Loading Gmail token for user...")
         token = load_client_token(user_email)
+        sender_email = get_user_email_from_token(token)
         print("📦 Loaded token:", token)
         if not token:
             print("❌ Token not found for:", user_email)
@@ -1151,11 +1153,13 @@ async def ab_test(data: ABTestRequest, request: Request):
             soup = BeautifulSoup(body, "html.parser")
             for link in soup.find_all("a", href=True):
                 original_url = link['href']
-                tracked_url = f"https://ai-email-backend-1-m0vj.onrender.com/click-track?email={to_email}&group={group}&url={urllib.parse.quote_plus(original_url)}"
-                link['href'] = tracked_url
+                tracking_url = f"https://ai-email-backend-1-m0vj.onrender.com/click-track?email={to_email}&group={group}&url={original_url}&sender={sender_email}"
+
+                link['href'] = tracking_url
+
 
             # Add open tracking pixel
-            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}" width="1" height="1" style="display:none;">'
+            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}&sender={sender_email}" width="1" height="1" style="display:none;">'
 
             # Final HTML with click and open tracking
             final_html = str(soup) + tracking_pixel
