@@ -1122,7 +1122,8 @@ async def ab_test(data: ABTestRequest, request: Request):
         # --- Step 3: Fetch token using user_email ---
         logger.info("🔐 Loading Gmail token for user...")
         token = load_client_token(user_email)
-        sender_email = get_user_email_from_token(token)
+        sender_email = data.user_email
+
         print("📦 Loaded token:", token)
         if not token:
             print("❌ Token not found for:", user_email)
