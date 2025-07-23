@@ -1237,6 +1237,18 @@ async def ab_test(data: ABTestRequest, request: Request):
         
 @app.get("/ab-engagement-report")
 async def ab_engagement_report():
+    # Load latest token (you can modify this to use session/user ID)
+    conn = sqlite3.connect("tokens.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT token FROM tokens ORDER BY id DESC LIMIT 1")
+    row = cursor.fetchone()
+    if not row:
+        return {"error": "No tokens found."}
+
+    token_data = json.loads(row[0])
+    sender_email = get_user_email_from_token(token_data)
+
+    # Now connect to your AB tracking DB
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
@@ -1263,17 +1275,16 @@ async def ab_engagement_report():
         )
     """)
 
-    # Fetch all opens
-    cursor.execute("SELECT email, group_name, sender_email, timestamp FROM ab_tracking")
+    # Filter only the sender's data
+    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
     open_rows = cursor.fetchall()
 
-    # Fetch all clicks
-    cursor.execute("SELECT email, group_name, target_url,sender_email, timestamp FROM ab_clicks")
+    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE sender_email = ?", (sender_email,))
     click_rows = cursor.fetchall()
 
     conn.close()
 
-    # Organize by email + group
+    # Organize report
     report = {}
 
     for email, group, timestamp in open_rows:
@@ -1305,9 +1316,6 @@ async def ab_engagement_report():
             report[key]["clicked"] = True
             report[key]["clicked_at"] = timestamp
             report[key]["target_url"] = target
-    print("=== AB Engagement Report ===")
-    for entry in report.values():
-        print(entry)
 
     return list(report.values())
 
