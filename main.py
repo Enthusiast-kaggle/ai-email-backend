@@ -1240,7 +1240,7 @@ async def ab_engagement_report():
     # Load latest token (you can modify this to use session/user ID)
     conn = sqlite3.connect("tokens.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT token FROM tokens ORDER BY id DESC LIMIT 1")
+    cursor.execute("SELECT token FROM tokens ORDER BY ROWID DESC LIMIT 1")
     row = cursor.fetchone()
     if not row:
         return {"error": "No tokens found."}
