@@ -1246,6 +1246,7 @@ async def ab_engagement_report():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT,
             group_name TEXT,
+            sender_email TEXT,
             ip TEXT,
             timestamp TEXT
         )
@@ -1256,17 +1257,18 @@ async def ab_engagement_report():
             email TEXT,
             group_name TEXT,
             target_url TEXT,
+            sender_email TEXT,
             ip TEXT,
             timestamp TEXT
         )
     """)
 
     # Fetch all opens
-    cursor.execute("SELECT email, group_name,  timestamp FROM ab_tracking")
+    cursor.execute("SELECT email, group_name, sender_email, timestamp FROM ab_tracking")
     open_rows = cursor.fetchall()
 
     # Fetch all clicks
-    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks")
+    cursor.execute("SELECT email, group_name, target_url,sender_email, timestamp FROM ab_clicks")
     click_rows = cursor.fetchall()
 
     conn.close()
