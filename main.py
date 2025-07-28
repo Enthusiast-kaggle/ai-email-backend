@@ -1361,6 +1361,12 @@ async def ab_engagement_report():
             }
 
     return list(report.values())
+
+from fastapi.responses import FileResponse
+
+@app.get("/download-db")
+async def download_db():
+    return FileResponse(TOKEN_DB, media_type='application/octet-stream', filename="your_database.db")
     
 @app.get("/")
 def root():
