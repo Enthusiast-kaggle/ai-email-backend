@@ -1256,61 +1256,79 @@ async def ab_test(data: ABTestRequest, request: Request):
         return JSONResponse(status_code=500, content={"error": str(e)})
         
 @app.get("/ab-engagement-report")
-async def ab_engagement_report(request: Request):
-    sender_email = request.query_params.get("sender_email")
-    if not sender_email:
-        raise HTTPException(status_code=400, detail="sender_email is required")
-
-    token_data = get_token_by_email(sender_email)
-    if not token_data:
-        raise HTTPException(status_code=404, detail="Token not found for the sender_email")
-
+async def ab_engagement_report():
+    # ✅ STEP 1: Get ALL sender emails from the DB (those who logged in)
     try:
-        creds = Credentials.from_authorized_user_info(token_data)
+        conn = sqlite3.connect("your_token_db.db")  # Use your correct TOKEN_DB variable if defined
+        cursor = conn.cursor()
+        cursor.execute("SELECT email FROM tokens ORDER BY id DESC")
+        result = cursor.fetchall()
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error loading sender emails: {str(e)}")
+
+    if not result:
+        raise HTTPException(status_code=404, detail="No tokens found.")
+
+    # ✅ STEP 2: Pick latest logged-in sender email
+    sender_email = result[0][0]
+
+    # ✅ STEP 3: Load credentials and validate
+    try:
+        token_data = load_client_token(sender_email)
+        creds = Credentials(
+            token=token_data["token"],
+            refresh_token=token_data["refresh_token"],
+            token_uri=token_data["token_uri"],
+            client_id=token_data["client_id"],
+            client_secret=token_data["client_secret"],
+            scopes=token_data["scopes"]
+        )
         if creds.expired and creds.refresh_token:
             creds.refresh(GoogleRequest())
-        user_info = get_user_email_from_token(token_data)
-        if user_info != sender_email:
-            raise HTTPException(status_code=403, detail="Token does not belong to sender_email")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Token validation failed: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Token loading/refreshing failed: {str(e)}")
 
-    # Fetch engagement data
-    conn = sqlite3.connect("your_database.db")
-    cursor = conn.cursor()
+    # ✅ STEP 4: Now query tracking and click DB
+    try:
+        conn = sqlite3.connect("your_email_db.db")  # Replace with your actual engagement DB
+        cursor = conn.cursor()
 
-    # Ensure tables exist (no harm in keeping these lines)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_tracking (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            sender_email TEXT,
-            ip TEXT,
-            timestamp TEXT
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_clicks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            target_url TEXT,
-            sender_email TEXT,
-            ip TEXT,
-            timestamp TEXT
-        )
-    """)
+        # Ensure tables exist
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ab_tracking (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                group_name TEXT,
+                sender_email TEXT,
+                ip TEXT,
+                timestamp TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS ab_clicks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email TEXT,
+                group_name TEXT,
+                target_url TEXT,
+                sender_email TEXT,
+                ip TEXT,
+                timestamp TEXT
+            )
+        """)
 
-    # Fetch opens and clicks
-    cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
-    opens = cursor.fetchall()
+        # ✅ Step 5: Query based on sender_email
+        cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
+        opens = cursor.fetchall()
 
-    cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE sender_email = ?", (sender_email,))
-    clicks = cursor.fetchall()
+        cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE sender_email = ?", (sender_email,))
+        clicks = cursor.fetchall()
 
-    conn.close()
+        conn.close()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"DB error while fetching engagement: {str(e)}")
 
+    # ✅ Step 6: Format the data
     report = {}
 
     for email, group, ts in opens:
@@ -1343,7 +1361,7 @@ async def ab_engagement_report(request: Request):
             }
 
     return JSONResponse(content=list(report.values()))
-
+    
 @app.get("/")
 def root():
     return {"message": "✅ AI Email Assistant Backend is running!"}
