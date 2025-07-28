@@ -1256,33 +1256,31 @@ async def ab_test(data: ABTestRequest, request: Request):
         return JSONResponse(status_code=500, content={"error": str(e)})
         
 @app.get("/ab-engagement-report")
-async def ab_engagement_report():
-    # Step 1: Fetch latest token entry just for getting the email
-    conn = sqlite3.connect("tokens.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT email FROM tokens ORDER BY ROWID DESC LIMIT 1")
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        return {"error": "No token/email found. Please authenticate."}
-
-    email = row[0]
-    token_dict = get_token_by_email(email)
-
-    if not token_dict:
-        return {"error": "Token not found for this email."}
+async def ab_engagement_report(request: Request):
+    # Step 1: Get logged-in user's email from the token
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return {"error": "Missing or invalid Authorization header"}
 
     try:
-        sender_email = get_user_email_from_token(token_dict)
+        access_token = auth_header.split("Bearer ")[1]
+        sender_email = get_user_email_from_token(access_token)
     except Exception as e:
         return {"error": f"Token parsing or email fetch failed: {str(e)}"}
 
-    # Step 2: Connect to main DB
+    # Step 2: Fetch full token dict from DB using email
+    try:
+        token_dict = get_token_by_email(sender_email)
+        if not token_dict:
+            return {"error": f"No token found for email: {sender_email}"}
+    except Exception as e:
+        return {"error": f"Token fetch failed: {str(e)}"}
+
+    # Step 3: Connect to main DB
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
-    # Step 3: Ensure tables exist
+    # Step 4: Ensure tables exist
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1305,7 +1303,7 @@ async def ab_engagement_report():
         )
     """)
 
-    # Step 4: Fetch data only for the logged-in user
+    # Step 5: Fetch data only for that sender_email
     cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
     open_rows = cursor.fetchall()
 
@@ -1314,7 +1312,7 @@ async def ab_engagement_report():
 
     conn.close()
 
-    # Step 5: Merge open and click data
+    # Step 6: Build final report
     report = {}
 
     for email, group, timestamp in open_rows:
