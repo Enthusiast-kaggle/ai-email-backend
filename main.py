@@ -944,6 +944,26 @@ async def run_mail_merge(request: Request):
         return {"status": "error", "message": f"Server error: {str(e)}"}
 
 
+def get_token_by_email(email):
+    conn = sqlite3.connect(TOKEN_DB)
+    cursor = conn.cursor()
+    cursor.execute("SELECT token, refresh_token, token_uri, client_id, client_secret, scopes, expiry FROM tokens WHERE email = ?", (email,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row:
+        token_dict = {
+            "token": row[0],
+            "refresh_token": row[1],
+            "token_uri": row[2],
+            "client_id": row[3],
+            "client_secret": row[4],
+            "scopes": json.loads(row[5] or "[]"),
+            "expiry": row[6]
+        }
+        return token_dict
+    return None
+    
 # Initialize tracking table if not exists
 def initialize_tracking_db():
     conn = sqlite3.connect(TRACKING_DB)
@@ -1237,19 +1257,24 @@ async def ab_test(data: ABTestRequest, request: Request):
         
 @app.get("/ab-engagement-report")
 async def ab_engagement_report():
-    # Step 1: Fetch latest token
+    # Step 1: Fetch latest token entry just for getting the email
     conn = sqlite3.connect("tokens.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT token FROM tokens ORDER BY ROWID DESC LIMIT 1")
+    cursor.execute("SELECT email FROM tokens ORDER BY ROWID DESC LIMIT 1")
     row = cursor.fetchone()
     conn.close()
 
     if not row:
-        return {"error": "No token found. Please authenticate."}
+        return {"error": "No token/email found. Please authenticate."}
+
+    email = row[0]
+    token_dict = get_token_by_email(email)
+
+    if not token_dict:
+        return {"error": "Token not found for this email."}
 
     try:
-        token_data = json.loads(row[0])
-        sender_email = get_user_email_from_token(token_data)
+        sender_email = get_user_email_from_token(token_dict)
     except Exception as e:
         return {"error": f"Token parsing or email fetch failed: {str(e)}"}
 
