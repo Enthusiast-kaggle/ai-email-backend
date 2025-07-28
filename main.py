@@ -1279,6 +1279,7 @@ async def ab_engagement_report(request: Request):
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
+    # Ensure tables exist (no harm in keeping these lines)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1301,6 +1302,7 @@ async def ab_engagement_report(request: Request):
         )
     """)
 
+    # Fetch opens and clicks
     cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
     opens = cursor.fetchall()
 
