@@ -1237,22 +1237,27 @@ async def ab_test(data: ABTestRequest, request: Request):
         
 @app.get("/ab-engagement-report")
 async def ab_engagement_report():
-    # Load latest token (you can modify this to use session/user ID)
+    # Step 1: Fetch latest token
     conn = sqlite3.connect("tokens.db")
     cursor = conn.cursor()
     cursor.execute("SELECT token FROM tokens ORDER BY ROWID DESC LIMIT 1")
     row = cursor.fetchone()
+    conn.close()
+
     if not row:
-        return {"error": "No tokens found."}
+        return {"error": "No token found. Please authenticate."}
 
-    token_data = json.loads(row[0])
-    sender_email = get_user_email_from_token(token_data)
+    try:
+        token_data = json.loads(row[0])
+        sender_email = get_user_email_from_token(token_data)
+    except Exception as e:
+        return {"error": f"Token parsing or email fetch failed: {str(e)}"}
 
-    # Now connect to your AB tracking DB
+    # Step 2: Connect to main DB
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
-    # Ensure tables exist
+    # Step 3: Ensure tables exist
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1275,7 +1280,7 @@ async def ab_engagement_report():
         )
     """)
 
-    # Filter only the sender's data
+    # Step 4: Fetch data only for the logged-in user
     cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
     open_rows = cursor.fetchall()
 
@@ -1284,7 +1289,7 @@ async def ab_engagement_report():
 
     conn.close()
 
-    # Organize report
+    # Step 5: Merge open and click data
     report = {}
 
     for email, group, timestamp in open_rows:
@@ -1318,7 +1323,6 @@ async def ab_engagement_report():
             report[key]["target_url"] = target
 
     return list(report.values())
-
 
 
 @app.get("/")
