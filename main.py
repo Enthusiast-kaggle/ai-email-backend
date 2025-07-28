@@ -894,7 +894,7 @@ Email:
                                        subject=subject,
                                        body=body,
                                        client_token_data=client_token,
-                                       sender_email=sender
+                                       sender_email=sender_email
                                       )
 
                             print(f"✅ Sent Part {part_no} to {recipient}")
