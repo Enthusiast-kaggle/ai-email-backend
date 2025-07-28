@@ -1257,9 +1257,9 @@ async def ab_test(data: ABTestRequest, request: Request):
         
 @app.get("/ab-engagement-report")
 async def ab_engagement_report():
-    # ✅ STEP 1: Get ALL sender emails from the DB (those who logged in)
+    # ✅ STEP 1: Get ALL sender emails from the token DB
     try:
-        conn = sqlite3.connect(TOKEN_DB)  # Use your correct TOKEN_DB variable if defined
+        conn = sqlite3.connect(TOKEN_DB)
         cursor = conn.cursor()
         cursor.execute("SELECT DISTINCT email FROM tokens")
         result = cursor.fetchall()
@@ -1273,7 +1273,7 @@ async def ab_engagement_report():
     # ✅ STEP 2: Pick latest logged-in sender email
     sender_email = result[0][0]
 
-    # ✅ STEP 3: Load credentials and validate
+    # ✅ STEP 3: Load credentials
     try:
         token_data = load_client_token(sender_email)
         creds = Credentials(
@@ -1289,7 +1289,7 @@ async def ab_engagement_report():
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Token loading/refreshing failed: {str(e)}")
 
-    # ✅ STEP 4: Now query tracking and click DB
+    # ✅ STEP 4: Query tracking/click data from engagement DB
     try:
         conn = sqlite3.connect("your_database.db")  # Replace with your actual engagement DB
         cursor = conn.cursor()
@@ -1317,7 +1317,7 @@ async def ab_engagement_report():
             )
         """)
 
-        # ✅ Step 5: Query based on sender_email
+        # ✅ STEP 5: Query by sender_email
         cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
         opens = cursor.fetchall()
 
@@ -1328,7 +1328,7 @@ async def ab_engagement_report():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error while fetching engagement: {str(e)}")
 
-    # ✅ Step 6: Format the data
+    # ✅ STEP 6: Format the response
     report = {}
 
     for email, group, ts in opens:
@@ -1360,7 +1360,7 @@ async def ab_engagement_report():
                 "target_url": url
             }
 
-    return JSONResponse(content=list(report.values()))
+    return list(report.values())
     
 @app.get("/")
 def root():
