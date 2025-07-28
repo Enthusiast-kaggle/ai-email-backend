@@ -1257,30 +1257,28 @@ async def ab_test(data: ABTestRequest, request: Request):
         
 @app.get("/ab-engagement-report")
 async def ab_engagement_report(request: Request):
-    # Step 1: Get logged-in user's email from the token
-    auth_header = request.headers.get("Authorization")
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return {"error": "Missing or invalid Authorization header"}
+    sender_email = request.query_params.get("sender_email")
+    if not sender_email:
+        raise HTTPException(status_code=400, detail="sender_email is required")
+
+    token_data = get_token_by_email(sender_email)
+    if not token_data:
+        raise HTTPException(status_code=404, detail="Token not found for the sender_email")
 
     try:
-        access_token = auth_header.split("Bearer ")[1]
-        sender_email = get_user_email_from_token(access_token)
+        creds = Credentials.from_authorized_user_info(token_data)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(GoogleRequest())
+        user_info = get_user_email_from_token(token_data)
+        if user_info != sender_email:
+            raise HTTPException(status_code=403, detail="Token does not belong to sender_email")
     except Exception as e:
-        return {"error": f"Token parsing or email fetch failed: {str(e)}"}
+        raise HTTPException(status_code=400, detail=f"Token validation failed: {str(e)}")
 
-    # Step 2: Fetch full token dict from DB using email
-    try:
-        token_dict = get_token_by_email(sender_email)
-        if not token_dict:
-            return {"error": f"No token found for email: {sender_email}"}
-    except Exception as e:
-        return {"error": f"Token fetch failed: {str(e)}"}
-
-    # Step 3: Connect to main DB
+    # Fetch engagement data
     conn = sqlite3.connect("your_database.db")
     cursor = conn.cursor()
 
-    # Step 4: Ensure tables exist
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS ab_tracking (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1303,50 +1301,46 @@ async def ab_engagement_report(request: Request):
         )
     """)
 
-    # Step 5: Fetch data only for that sender_email
     cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
-    open_rows = cursor.fetchall()
+    opens = cursor.fetchall()
 
     cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE sender_email = ?", (sender_email,))
-    click_rows = cursor.fetchall()
+    clicks = cursor.fetchall()
 
     conn.close()
 
-    # Step 6: Build final report
     report = {}
 
-    for email, group, timestamp in open_rows:
+    for email, group, ts in opens:
         key = (email, group)
-        if key not in report:
-            report[key] = {
-                "email": email,
-                "group": group,
-                "opened": True,
-                "opened_at": timestamp,
-                "clicked": False,
-                "clicked_at": None,
-                "target_url": None,
-            }
+        report[key] = {
+            "email": email,
+            "group": group,
+            "opened": True,
+            "opened_at": ts,
+            "clicked": False,
+            "clicked_at": None,
+            "target_url": None
+        }
 
-    for email, group, target, timestamp in click_rows:
+    for email, group, url, ts in clicks:
         key = (email, group)
-        if key not in report:
+        if key in report:
+            report[key]["clicked"] = True
+            report[key]["clicked_at"] = ts
+            report[key]["target_url"] = url
+        else:
             report[key] = {
                 "email": email,
                 "group": group,
                 "opened": False,
                 "opened_at": None,
                 "clicked": True,
-                "clicked_at": timestamp,
-                "target_url": target,
+                "clicked_at": ts,
+                "target_url": url
             }
-        else:
-            report[key]["clicked"] = True
-            report[key]["clicked_at"] = timestamp
-            report[key]["target_url"] = target
 
-    return list(report.values())
-
+    return JSONResponse(content=list(report.values()))
 
 @app.get("/")
 def root():
