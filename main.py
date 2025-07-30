@@ -1088,33 +1088,51 @@ def get_db():
 # ✅ 1. Open Tracking
 @app.get("/open-track")
 async def open_tracking(email: str, group: str, sender: str):
-    db = next(get_db())
-    new_open = EmailOpen(
-        email=email,
-        group=group,
-        sender=sender,
-        opened_at=datetime.utcnow()
-    )
-    db.add(new_open)
-    db.commit()
-    db.refresh(new_open)
-    return JSONResponse(content={"status": "open tracked", "id": new_open.id})
+    logger.info(f"📩 OPEN TRACK RECEIVED: email={email}, group={group}, sender={sender}")
+    
+    try:
+        db = next(get_db())
+        new_open = EmailOpen(
+            email=email,
+            group=group,
+            sender=sender,
+            opened_at=datetime.utcnow()
+        )
+        db.add(new_open)
+        db.commit()
+        db.refresh(new_open)
 
-# ✅ 2. Click Tracking
+        logger.info(f"✅ Open tracked: {new_open}")
+        return JSONResponse(content={"status": "open tracked", "id": new_open.id})
+    
+    except Exception as e:
+        logger.error(f"❌ Failed to track open: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": "Failed to track open"})
+
+
 @app.get("/click-track")
 async def click_tracking(email: str, group: str, sender: str, url: str):
-    db = next(get_db())
-    new_click = EmailClick(
-        email=email,
-        group=group,
-        sender=sender,
-        clicked_url=url,
-        clicked_at=datetime.utcnow()
-    )
-    db.add(new_click)
-    db.commit()
-    db.refresh(new_click)
-    return JSONResponse(content={"status": "click tracked", "id": new_click.id})
+    logger.info(f"🔗 CLICK TRACK RECEIVED: email={email}, group={group}, sender={sender}, url={url}")
+    
+    try:
+        db = next(get_db())
+        new_click = EmailClick(
+            email=email,
+            group=group,
+            sender=sender,
+            clicked_url=url,
+            clicked_at=datetime.utcnow()
+        )
+        db.add(new_click)
+        db.commit()
+        db.refresh(new_click)
+
+        logger.info(f"✅ Click tracked: {new_click}")
+        return JSONResponse(content={"status": "click tracked", "id": new_click.id})
+    
+    except Exception as e:
+        logger.error(f"❌ Failed to track click: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": "Failed to track click"})
 
 
 from fastapi import APIRouter, Request
@@ -1281,46 +1299,58 @@ async def ab_test(data: ABTestRequest, request: Request):
 @app.get("/ab-engagement-report")
 async def engagement_report():
     db = next(get_db())
-    
-    # Count opens
-    opens = db.query(
-        EmailOpen.sender,
-        EmailOpen.group,
-        func.count(EmailOpen.id).label("open_count")
-    ).group_by(EmailOpen.sender, EmailOpen.group).all()
 
-    # Count clicks
-    clicks = db.query(
-        EmailClick.sender,
-        EmailClick.group,
-        func.count(EmailClick.id).label("click_count")
-    ).group_by(EmailClick.sender, EmailClick.group).all()
+    try:
+        logger.info("📊 Generating engagement report...")
 
-    # Merge opens + clicks by (sender, group)
-    report = {}
-    
-    for sender, group, open_count in opens:
-        key = f"{sender}_{group}"
-        report[key] = {
-            "sender": sender,
-            "group": group,
-            "opens": open_count,
-            "clicks": 0
-        }
-    
-    for sender, group, click_count in clicks:
-        key = f"{sender}_{group}"
-        if key in report:
-            report[key]["clicks"] = click_count
-        else:
+        # Count opens
+        opens = db.query(
+            EmailOpen.sender,
+            EmailOpen.group,
+            func.count(EmailOpen.id).label("open_count")
+        ).group_by(EmailOpen.sender, EmailOpen.group).all()
+
+        logger.info(f"🟢 Open records found: {len(opens)}")
+
+        # Count clicks
+        clicks = db.query(
+            EmailClick.sender,
+            EmailClick.group,
+            func.count(EmailClick.id).label("click_count")
+        ).group_by(EmailClick.sender, EmailClick.group).all()
+
+        logger.info(f"🔵 Click records found: {len(clicks)}")
+
+        # Merge opens + clicks
+        report = {}
+
+        for sender, group, open_count in opens:
+            key = f"{sender}_{group}"
             report[key] = {
                 "sender": sender,
                 "group": group,
-                "opens": 0,
-                "clicks": click_count
+                "opens": open_count,
+                "clicks": 0
             }
 
-    return list(report.values())
+        for sender, group, click_count in clicks:
+            key = f"{sender}_{group}"
+            if key in report:
+                report[key]["clicks"] = click_count
+            else:
+                report[key] = {
+                    "sender": sender,
+                    "group": group,
+                    "opens": 0,
+                    "clicks": click_count
+                }
+
+        logger.info(f"📈 Final report data: {report}")
+        return list(report.values())
+
+    except Exception as e:
+        logger.error(f"❌ Failed to generate report: {str(e)}")
+        return JSONResponse(status_code=500, content={"error": "Failed to generate report"})
 
 from fastapi.responses import FileResponse
 
