@@ -1267,11 +1267,12 @@ async def ab_test(data: ABTestRequest, request: Request):
                 link['href'] = tracking_url
 
 
-            # Add open tracking pixel
-            tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}&sender={sender_email}" width="1" height="1" style="display:none;">'
+                tracking_pixel = f'<img src="https://ai-email-backend-1-m0vj.onrender.com/open-track?email={to_email}&group={group}&sender={sender_email}" width="1" height="1" style="display:none;">'
+
 
             # Final HTML with click and open tracking
             final_html = str(soup) + tracking_pixel
+            print("📧 Final HTML sent:\n", final_html)
 
             print(f"📤 Sending email to: {to_email}")
             result = send_email(to_email, subject, final_html, token , sender_email)
