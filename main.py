@@ -1041,58 +1041,80 @@ def generate_transparent_pixel():
     buffered = BytesIO()
     img.save(buffered, format="PNG")
     return base64.b64encode(buffered.getvalue()).decode()
-    
+
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, func
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
+
+# ✅ Replace with your PostgreSQL URL from Render
+DATABASE_URL = "postgresql://emailassistant_db_user:t9XtfTyK3MNV2qgo4hsb2xWOcTWfYqbL@dpg-d246ec7fte5s73apf2mg-a/emailassistant_db"
+
+# ✅ SQLAlchemy Setup
+engine = create_engine(DATABASE_URL)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
+
+# ✅ Models
+class EmailOpen(Base):
+    __tablename__ = "email_opens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, index=True)
+    group = Column(String, index=True)
+    sender = Column(String, index=True)
+    opened_at = Column(DateTime, default=datetime.utcnow)
+
+class EmailClick(Base):
+    __tablename__ = "email_clicks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, index=True)
+    group = Column(String, index=True)
+    sender = Column(String, index=True)
+    clicked_url = Column(String)
+    clicked_at = Column(DateTime, default=datetime.utcnow)
+
+# ✅ Create tables if they don't exist
+Base.metadata.create_all(bind=engine)
+
+# ✅ DB Session helper
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+# ✅ 1. Open Tracking
 @app.get("/open-track")
-async def open_track(email: str = "", group: str = "", sender: str = ""):
-    timestamp = datetime.utcnow().isoformat()
-    conn = sqlite3.connect("your_database.db")
-    cursor = conn.cursor()
+async def open_tracking(email: str, group: str, sender: str):
+    db = next(get_db())
+    new_open = EmailOpen(
+        email=email,
+        group=group,
+        sender=sender,
+        opened_at=datetime.utcnow()
+    )
+    db.add(new_open)
+    db.commit()
+    db.refresh(new_open)
+    return JSONResponse(content={"status": "open tracked", "id": new_open.id})
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_tracking (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            sender_email TEXT,
-            timestamp TEXT
-        )
-    """)
-
-    cursor.execute("""
-        INSERT INTO ab_tracking (email, group_name, sender_email, timestamp)
-        VALUES (?, ?, ?, ?)
-    """, (email, group, sender, timestamp))
-
-    conn.commit()
-    conn.close()
-    return {"status": "tracked"}
-
-
+# ✅ 2. Click Tracking
 @app.get("/click-track")
-async def click_track(email: str = "", group: str = "", url: str = "", sender: str = ""):
-    timestamp = datetime.utcnow().isoformat()
-    conn = sqlite3.connect("your_database.db")
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS ab_clicks (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT,
-            group_name TEXT,
-            sender_email TEXT,
-            target_url TEXT,
-            timestamp TEXT
-        )
-    """)
-
-    cursor.execute("""
-        INSERT INTO ab_clicks (email, group_name, sender_email, target_url, timestamp)
-        VALUES (?, ?, ?, ?, ?)
-    """, (email, group, sender, url, timestamp))
-
-    conn.commit()
-    conn.close()
-    return RedirectResponse(url)
+async def click_tracking(email: str, group: str, sender: str, url: str):
+    db = next(get_db())
+    new_click = EmailClick(
+        email=email,
+        group=group,
+        sender=sender,
+        clicked_url=url,
+        clicked_at=datetime.utcnow()
+    )
+    db.add(new_click)
+    db.commit()
+    db.refresh(new_click)
+    return JSONResponse(content={"status": "click tracked", "id": new_click.id})
 
 
 from fastapi import APIRouter, Request
@@ -1255,109 +1277,47 @@ async def ab_test(data: ABTestRequest, request: Request):
         logger.exception("❗ Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
         
+# ✅ 3. A/B Engagement Report
 @app.get("/ab-engagement-report")
-async def ab_engagement_report():
-    # ✅ STEP 1: Get ALL sender emails from the token DB
-    try:
-        conn = sqlite3.connect(TOKEN_DB)
-        cursor = conn.cursor()
-        cursor.execute("SELECT DISTINCT email FROM tokens")
-        result = cursor.fetchall()
-        conn.close()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error loading sender emails: {str(e)}")
+async def engagement_report():
+    db = next(get_db())
+    
+    # Count opens
+    opens = db.query(
+        EmailOpen.sender,
+        EmailOpen.group,
+        func.count(EmailOpen.id).label("open_count")
+    ).group_by(EmailOpen.sender, EmailOpen.group).all()
 
-    if not result:
-        raise HTTPException(status_code=404, detail="No tokens found.")
+    # Count clicks
+    clicks = db.query(
+        EmailClick.sender,
+        EmailClick.group,
+        func.count(EmailClick.id).label("click_count")
+    ).group_by(EmailClick.sender, EmailClick.group).all()
 
-    # ✅ STEP 2: Pick latest logged-in sender email
-    sender_email = result[0][0]
-
-    # ✅ STEP 3: Load credentials
-    try:
-        token_data = load_client_token(sender_email)
-        creds = Credentials(
-            token=token_data["token"],
-            refresh_token=token_data["refresh_token"],
-            token_uri=token_data["token_uri"],
-            client_id=token_data["client_id"],
-            client_secret=token_data["client_secret"],
-            scopes=token_data["scopes"]
-        )
-        if creds.expired and creds.refresh_token:
-            creds.refresh(GoogleRequest())
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Token loading/refreshing failed: {str(e)}")
-
-    # ✅ STEP 4: Query tracking/click data from engagement DB
-    try:
-        conn = sqlite3.connect("your_database.db")  # Replace with your actual engagement DB
-        cursor = conn.cursor()
-
-        # Ensure tables exist
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ab_tracking (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT,
-                group_name TEXT,
-                sender_email TEXT,
-                ip TEXT,
-                timestamp TEXT
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS ab_clicks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                email TEXT,
-                group_name TEXT,
-                target_url TEXT,
-                sender_email TEXT,
-                ip TEXT,
-                timestamp TEXT
-            )
-        """)
-
-        # ✅ STEP 5: Query by sender_email
-        cursor.execute("SELECT email, group_name, timestamp FROM ab_tracking WHERE sender_email = ?", (sender_email,))
-        opens = cursor.fetchall()
-
-        cursor.execute("SELECT email, group_name, target_url, timestamp FROM ab_clicks WHERE sender_email = ?", (sender_email,))
-        clicks = cursor.fetchall()
-
-        conn.close()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"DB error while fetching engagement: {str(e)}")
-
-    # ✅ STEP 6: Format the response
+    # Merge opens + clicks by (sender, group)
     report = {}
-
-    for email, group, ts in opens:
-        key = (email, group)
+    
+    for sender, group, open_count in opens:
+        key = f"{sender}_{group}"
         report[key] = {
-            "email": email,
+            "sender": sender,
             "group": group,
-            "opened": True,
-            "opened_at": ts,
-            "clicked": False,
-            "clicked_at": None,
-            "target_url": None
+            "opens": open_count,
+            "clicks": 0
         }
-
-    for email, group, url, ts in clicks:
-        key = (email, group)
+    
+    for sender, group, click_count in clicks:
+        key = f"{sender}_{group}"
         if key in report:
-            report[key]["clicked"] = True
-            report[key]["clicked_at"] = ts
-            report[key]["target_url"] = url
+            report[key]["clicks"] = click_count
         else:
             report[key] = {
-                "email": email,
+                "sender": sender,
                 "group": group,
-                "opened": False,
-                "opened_at": None,
-                "clicked": True,
-                "clicked_at": ts,
-                "target_url": url
+                "opens": 0,
+                "clicks": click_count
             }
 
     return list(report.values())
