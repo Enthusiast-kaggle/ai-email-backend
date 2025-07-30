@@ -1005,7 +1005,10 @@ def log_email(sender, recipient, subject, status="sent"):
 async def get_campaign_report(request: Request):
     try:
         # Extract sender email from token (adjust if your logic differs)
-        sender_email = request.state.token_email if hasattr(request.state, "token_email") else None
+        logger.info("🔐 Loading Gmail token for user...")
+        token = load_client_token(user_email)
+        sender_email = data.user_email
+
         if not sender_email:
             return JSONResponse(status_code=401, content={"error": "Sender not authenticated"})
 
