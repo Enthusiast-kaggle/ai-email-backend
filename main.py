@@ -1299,64 +1299,74 @@ async def ab_test(data: ABTestRequest, request: Request):
         logger.exception("❗ Unhandled error during A/B test execution")
         return JSONResponse(status_code=500, content={"error": str(e)})
         
-# ✅ 3. A/B Engagement Report
+from fastapi import Request, Query
+from typing import Optional
+
 @app.get("/ab-engagement-report")
-async def engagement_report():
+async def engagement_report(sender: Optional[str] = Query(None)):
     db = next(get_db())
 
     try:
-        logger.info("📊 Generating engagement report...")
+        logger.info("📊 Fetching detailed engagement report...")
 
-        # Count opens
-        opens = db.query(
-            EmailOpen.sender,
+        if not sender:
+            return JSONResponse(status_code=400, content={"error": "Sender email is required as a query parameter"})
+
+        # Get opens by sender
+        open_data = db.query(
+            EmailOpen.email,
             EmailOpen.group,
-            func.count(EmailOpen.id).label("open_count")
-        ).group_by(EmailOpen.sender, EmailOpen.group).all()
+            EmailOpen.timestamp.label("opened_at"),
+            EmailOpen.target_url
+        ).filter(EmailOpen.sender == sender).all()
 
-        logger.info(f"🟢 Open records found: {len(opens)}")
-
-        # Count clicks
-        clicks = db.query(
-            EmailClick.sender,
+        # Get clicks by sender
+        click_data = db.query(
+            EmailClick.email,
             EmailClick.group,
-            func.count(EmailClick.id).label("click_count")
-        ).group_by(EmailClick.sender, EmailClick.group).all()
+            EmailClick.timestamp.label("clicked_at"),
+            EmailClick.target_url
+        ).filter(EmailClick.sender == sender).all()
 
-        logger.info(f"🔵 Click records found: {len(clicks)}")
+        # Combine by (email + group)
+        report_dict = {}
 
-        # Merge opens + clicks
-        report = {}
-
-        for sender, group, open_count in opens:
-            key = f"{sender}_{group}"
-            report[key] = {
-                "sender": sender,
-                "group": group,
-                "opens": open_count,
-                "clicks": 0
+        # First collect opens
+        for entry in open_data:
+            key = (entry.email, entry.group)
+            report_dict[key] = {
+                "email": entry.email,
+                "group": entry.group,
+                "opened": True,
+                "opened_at": str(entry.opened_at),
+                "clicked": False,
+                "clicked_at": None,
+                "target_url": entry.target_url
             }
 
-        for sender, group, click_count in clicks:
-            key = f"{sender}_{group}"
-            if key in report:
-                report[key]["clicks"] = click_count
+        # Now collect clicks and update or add
+        for entry in click_data:
+            key = (entry.email, entry.group)
+            if key in report_dict:
+                report_dict[key]["clicked"] = True
+                report_dict[key]["clicked_at"] = str(entry.clicked_at)
             else:
-                report[key] = {
-                    "sender": sender,
-                    "group": group,
-                    "opens": 0,
-                    "clicks": click_count
+                report_dict[key] = {
+                    "email": entry.email,
+                    "group": entry.group,
+                    "opened": False,
+                    "opened_at": None,
+                    "clicked": True,
+                    "clicked_at": str(entry.clicked_at),
+                    "target_url": entry.target_url
                 }
 
-        logger.info(f"📈 Final report data: {report}")
-        return list(report.values())
+        logger.info(f"✅ Report generated with {len(report_dict)} entries")
+        return list(report_dict.values())
 
     except Exception as e:
         logger.error(f"❌ Failed to generate report: {str(e)}")
         return JSONResponse(status_code=500, content={"error": "Failed to generate report"})
-
-from fastapi.responses import FileResponse
 
 @app.get("/download-db")
 async def download_db():
